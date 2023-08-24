@@ -23,7 +23,7 @@ jax.config.update("jax_debug_infs", True)
 class MLP(nn.Module):
     features: Sequence[int]
     kernel_init: Callable = nn.initializers.variance_scaling(
-        1e-5, "fan_in", "truncated_normal")
+        2, "fan_in", "truncated_normal") # for ReLU
     bias_init: Callable = nn.initializers.zeros
 
     @nn.compact
