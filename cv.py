@@ -145,7 +145,7 @@ if __name__ == '__main__':
     # define subtraction function
     @jax.jit
     def f(x, p):
-        return (jax.grad(lambda x, p: g.apply(p, x),
+        return (jax.grad(lambda x, p: g.apply(p, x)[0],
                 argnums=0)(x, p)[0] - jax.grad(model.action)(x)[0] * g.apply(p, x))[0]
 
     # define loss function
