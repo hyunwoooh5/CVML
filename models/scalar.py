@@ -57,7 +57,7 @@ class Model:
         pot = jnp.sum((self.dt_site.real)*(m2/2*phi**2)).real
         kin_s = [jnp.sum((self.dt_site.real)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
                  for d in range(1, self.D+1)]
-        kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
+        kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link.real))
         return pot + jnp.sum(jnp.array(kin_s)) + kin_t
 
     def _action_quartic(self, phi):
@@ -73,7 +73,7 @@ class Model:
         pot = jnp.sum((self.dt_site.real)*(t*m2/2*phi**2 + lamda*phi**4))
         kin_s = [jnp.sum((self.dt_site.real)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
                  for d in range(1, self.D+1)]
-        kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
+        kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link.real))
         return pot + t*(jnp.sum(jnp.array(kin_s)) + kin_t)
 
     def _observe(self, phi):
