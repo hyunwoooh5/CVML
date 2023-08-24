@@ -38,15 +38,15 @@ class Model:
         self.NT = self.nbeta + 2*self.nt
         self.dof = np.prod(self.geom, dtype=int)*self.NT
         self.shape = (self.NT,)+self.geom
-        # self.contour = sk_contour(self.nbeta, self.nt, shape=self.sk_shape)
-        # self.contour_site = jnp.array(
-        #    [(self.contour[i]+self.contour[(i-1) % self.NT])/2 for i in range(self.NT)])
-        # self.dt_link = self.dt * \
-        #     jnp.tile(self.contour.reshape(
-        #         (self.NT,)+(1,)*self.D), (1,)+self.geom)
-        # self.dt_site = self.dt * \
-        #     jnp.tile(self.contour_site.reshape(
-        #        (self.NT,)+(1,)*self.D), (1,)+self.geom)
+        self.contour = sk_contour(self.nbeta, self.nt, shape=self.sk_shape)
+        self.contour_site = jnp.array(
+           [(self.contour[i]+self.contour[(i-1) % self.NT])/2 for i in range(self.NT)])
+        self.dt_link = self.dt * \
+            jnp.tile(self.contour.reshape(
+                (self.NT,)+(1,)*self.D), (1,)+self.geom)
+        self.dt_site = self.dt * \
+            jnp.tile(self.contour_site.reshape(
+               (self.NT,)+(1,)*self.D), (1,)+self.geom)
 
         # Backwards compatibility
         self.periodic_contour = False
@@ -54,8 +54,8 @@ class Model:
     def _action_quadratic(self, phi):
         m2 = self.m2
         phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site)*(m2/2*phi**2))
-        kin_s = [jnp.sum((self.dt_site)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
+        pot = jnp.sum((self.dt_site)*(m2/2*phi**2)).real
+        kin_s = [jnp.sum((self.dt_site.real)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
                  for d in range(1, self.D+1)]
         kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
         return pot + jnp.sum(jnp.array(kin_s)) + kin_t
@@ -63,15 +63,15 @@ class Model:
     def _action_quartic(self, phi):
         lamda = self.lamda
         phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site)*(lamda*phi**4))
+        pot = jnp.sum((self.dt_site.real)*(lamda*phi**4))
         return pot
 
     def _action(self, phi, t=1.):
         m2 = self.m2
         lamda = self.lamda
         phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site)*(t*m2/2*phi**2 + lamda*phi**4))
-        kin_s = [jnp.sum((self.dt_site)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
+        pot = jnp.sum((self.dt_site.real)*(t*m2/2*phi**2 + lamda*phi**4))
+        kin_s = [jnp.sum((self.dt_site.real)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
                  for d in range(1, self.D+1)]
         kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
         return pot + t*(jnp.sum(jnp.array(kin_s)) + kin_t)
