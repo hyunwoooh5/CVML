@@ -101,7 +101,7 @@ class Model:
             raise "Non-S shapes not supported"
 
     def action(self, z, t=1.):
-        return self._action(self._phi(z), t=t)
+        return self._action(z, t=t)
 
     def observe(self, z):
-        return self._observe(self._phi(z))
+        return self._observe(z)
