@@ -36,6 +36,7 @@ class MLP(nn.Module):
                      bias_init=self.bias_init)(x)
         return x
 
+
 class CV_MLP(nn.Module):
     features: Sequence[int]
 
@@ -43,6 +44,7 @@ class CV_MLP(nn.Module):
     def __call__(self, x):
         u = MLP(self.features)(x)
         return u
+
 
 class Naive(nn.Module):
     def __call__(self, x):
@@ -153,7 +155,7 @@ if __name__ == '__main__':
     @jax.jit
     def f(x, p):
         return (jax.grad(lambda x, p: g.apply(p, x)[0],
-                argnums=0)(x, p)[0] - jax.grad(model.action.real)(x)[0] * g.apply(p, x))[0]
+                argnums=0)(x, p)[0] - jax.grad(lambda y: model.action(y).real)(x)[0] * g.apply(p, x))[0]
 
     # define loss function
     @jax.jit
