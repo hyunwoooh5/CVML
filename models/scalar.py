@@ -31,22 +31,22 @@ class Model:
     m2: float
     lamda: float
     dt: float = 1.
-    sk_shape: str = 'S'
+    # sk_shape: str = 'S'
 
     def __post_init__(self):
         self.D = len(self.geom)
         self.NT = self.nbeta + 2*self.nt
         self.dof = np.prod(self.geom, dtype=int)*self.NT
         self.shape = (self.NT,)+self.geom
-        self.contour = sk_contour(self.nbeta, self.nt, shape=self.sk_shape)
-        self.contour_site = jnp.array(
-            [(self.contour[i]+self.contour[(i-1) % self.NT])/2 for i in range(self.NT)])
-        self.dt_link = self.dt * \
-            jnp.tile(self.contour.reshape(
-                (self.NT,)+(1,)*self.D), (1,)+self.geom)
-        self.dt_site = self.dt * \
-            jnp.tile(self.contour_site.reshape(
-                (self.NT,)+(1,)*self.D), (1,)+self.geom)
+        # self.contour = sk_contour(self.nbeta, self.nt, shape=self.sk_shape)
+        # self.contour_site = jnp.array(
+        #    [(self.contour[i]+self.contour[(i-1) % self.NT])/2 for i in range(self.NT)])
+        # self.dt_link = self.dt * \
+        #     jnp.tile(self.contour.reshape(
+        #         (self.NT,)+(1,)*self.D), (1,)+self.geom)
+        # self.dt_site = self.dt * \
+        #     jnp.tile(self.contour_site.reshape(
+        #        (self.NT,)+(1,)*self.D), (1,)+self.geom)
 
         # Backwards compatibility
         self.periodic_contour = False

@@ -142,8 +142,10 @@ if __name__ == '__main__':
             V), chain_key, delta=1./jnp.sqrt(V))
 
     # define subtraction function
-    f = jax.jit(jax.grad(lambda x, p: g.apply(p, x),
-                argnum=1) - jax.grad(model.action) * g)
+    @jax.jit
+    def f(x, p):
+        return jax.grad(lambda x, p: g.apply(p, x),
+                argnums=0)(x, p)[0] - jax.grad(model.action)(x)[0] * g.apply(p, x)
 
     # define loss function
     @jax.jit
