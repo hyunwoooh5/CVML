@@ -109,6 +109,7 @@ if __name__ == '__main__':
 
     g_ikey, chain_key = jax.random.split(key, 2)
 
+    # define the function g
     if args.real:
         # Output real plane and quit
         g = Naive()
@@ -144,8 +145,8 @@ if __name__ == '__main__':
     # define subtraction function
     @jax.jit
     def f(x, p):
-        return jax.grad(lambda x, p: g.apply(p, x),
-                argnums=0)(x, p)[0] - jax.grad(model.action)(x)[0] * g.apply(p, x)
+        return (jax.grad(lambda x, p: g.apply(p, x),
+                argnums=0)(x, p)[0] - jax.grad(model.action)(x)[0] * g.apply(p, x))[0]
 
     # define loss function
     @jax.jit
@@ -249,10 +250,10 @@ if __name__ == '__main__':
             for i in range(len(obs)):
                 chain.step(N=skip)
                 obs[i] = model.observe(chain.x)
-                cvs[i] = f(chain.x, g_params)
+                cvs[i] = model.observe(chain.x) - f(chain.x, g_params)
 
             # print(f'{np.mean(phases).real} {np.abs(np.mean(phases))} {bootstrap(np.array(phases))} ({np.mean(np.abs(chain.x))} {np.real(np.mean(acts))} {np.mean(acts)} {grad_abs} {chain.acceptance_rate()})', flush=True)
-            print(f'{np.mean(obs).real} {bootstrap(np.array(obs - cvs))} ({np.mean(np.abs(chain.x))} {chain.acceptance_rate()})', flush=True)
+            print(f'{np.mean(obs).real} {bootstrap(np.array(cvs))} ({np.mean(np.abs(chain.x))} {chain.acceptance_rate()})', flush=True)
 
             save()
 

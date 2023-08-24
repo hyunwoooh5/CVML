@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-from models import scalar, hubbard, thirring
+from models import scalar
 from mc import metropolis, replica
-from contour import *
+from cv import *
 import argparse
 import itertools
 import pickle
@@ -21,7 +21,7 @@ jax.config.update('jax_platform_name', 'cpu')
 
 parser = argparse.ArgumentParser(description="Train contour")
 parser.add_argument('model', type=str, help="model filename")
-parser.add_argument('contour', type=str, help="contour filename")
+parser.add_argument('cv', type=str, help="cv filename")
 parser.add_argument('-r', '--replica', action='store_true',
                     help="use replica exchange")
 parser.add_argument('-nrep', '--nreplicas', type=int, default=30,
@@ -53,7 +53,7 @@ with open(args.model, 'rb') as f:
     model = eval(f.read())
 
 with open(args.contour, 'rb') as f:
-    contour, contour_params = pickle.load(f)
+    g, g_params = pickle.load(f)
 
 contour_ikey, chain_key = jax.random.split(key, 2)
 
@@ -63,38 +63,24 @@ skip = args.skip
 if args.skip == 30:
     skip = V
 
-if type(contour) == AffineContour or type(contour) == NearestNeighborAffineContour or type(contour) == PeriodicAffineContour:
-    @jax.jit
-    def Seff(x, p):
-        j = jax.jacfwd(lambda y: contour.apply(p, y))(x)
-        logdet = jnp.log(j.diagonal().prod())
-        xt = contour.apply(p, x)
-        Seff = model.action(xt) - logdet
-        return Seff
 
-else:
-    @jax.jit
-    def Seff(x, p):
-        j = jax.jacfwd(lambda y: contour.apply(p, y))(x)
-        s, logdet = jnp.linalg.slogdet(j)
-        xt = contour.apply(p, x)
-        Seff = model.action(xt) - jnp.log(s) - logdet
-        return Seff
+@jax.jit
+def f(x, p):
+    return (jax.grad(lambda x, p: g.apply(p, x),
+                     argnums=0)(x, p)[0] - jax.grad(model.action)(x)[0] * g.apply(p, x))[0]
 
 
 @jax.jit
 def observe(x, p):
-    phase = jnp.exp(-1j*Seff(x, p).imag)
-    phi = contour.apply(p, x)
-    return phase, model.observe(phi)
+    return model.observe(x) - f(x, p)
 
 
 if args.replica:
-    chain = replica.ReplicaExchange(lambda x: Seff(x, contour_params), jnp.zeros(
+    chain = replica.ReplicaExchange(model.action, jnp.zeros(
         V), chain_key, delta=1./jnp.sqrt(V), max_hbar=args.max_hbar, Nreplicas=args.nreplicas)
 else:
-    chain = metropolis.Chain(lambda x: Seff(
-        x, contour_params), jnp.zeros(V), chain_key, delta=1./jnp.sqrt(V))
+    chain = metropolis.Chain(model.action, jnp.zeros(
+        V), chain_key, delta=1./jnp.sqrt(V))
 chain.calibrate()
 chain.step(N=args.thermalize*V)
 chain.calibrate()
@@ -104,9 +90,9 @@ try:
         def slc(it): return itertools.islice(it, args.samples)
 
     for x in slc(chain.iter(skip)):
-        phase, obs = observe(x, contour_params)
+        obs = observe(x, g_params)
         obsstr = " ".join([str(x) for x in obs])
-        print(f'{phase} {obsstr} {chain.acceptance_rate()}', flush=True)
+        print(f'{obsstr} {chain.acceptance_rate()}', flush=True)
 
 except KeyboardInterrupt:
     pass
