@@ -36,6 +36,13 @@ class MLP(nn.Module):
                      bias_init=self.bias_init)(x)
         return x
 
+class CV_MLP(nn.Module):
+    features: Sequence[int]
+
+    @nn.compact
+    def __call__(self, x):
+        u = MLP(self.features)(x)
+        return u
 
 class Naive(nn.Module):
     def __call__(self, x):
@@ -131,7 +138,7 @@ if __name__ == '__main__':
             g, g_params = pickle.load(f)
         loaded = True
     if not loaded:
-        g = MLP([args.width*V]*args.layers)
+        g = CV_MLP([args.width*V]*args.layers)
         g_params = g.init(g_ikey, jnp.zeros(V))
 
     # setup metropolis
@@ -252,7 +259,7 @@ if __name__ == '__main__':
                 cvs[i] = model.observe(chain.x).real - f(chain.x, g_params)
 
             # print(f'{np.mean(phases).real} {np.abs(np.mean(phases))} {bootstrap(np.array(phases))} ({np.mean(np.abs(chain.x))} {np.real(np.mean(acts))} {np.mean(acts)} {grad_abs} {chain.acceptance_rate()})', flush=True)
-            print(f'{np.mean(obs).real} {bootstrap(np.array(cvs))} ({np.mean(np.abs(chain.x))} {chain.acceptance_rate()})', flush=True)
+            print(f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))} ({np.mean(np.abs(chain.x))} {chain.acceptance_rate()})', flush=True)
 
             save()
 
