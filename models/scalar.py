@@ -54,26 +54,26 @@ class Model:
     def _action_quadratic(self, phi):
         m2 = self.m2
         phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site.real)*(m2/2*phi**2)).real
-        kin_s = [jnp.sum((self.dt_site.real)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
+        pot = jnp.sum((self.dt_site)*(m2/2*phi**2))
+        kin_s = [jnp.sum((self.dt_site)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
                  for d in range(1, self.D+1)]
-        kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link.real))
+        kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
         return pot + jnp.sum(jnp.array(kin_s)) + kin_t
 
     def _action_quartic(self, phi):
         lamda = self.lamda
         phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site.real)*(lamda*phi**4))
+        pot = jnp.sum((self.dt_site)*(lamda*phi**4))
         return pot
 
     def _action(self, phi, t=1.):
         m2 = self.m2
         lamda = self.lamda
         phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site.real)*(t*m2/2*phi**2 + lamda*phi**4))
-        kin_s = [jnp.sum((self.dt_site.real)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
+        pot = jnp.sum((self.dt_site)*(t*m2/2*phi**2 + lamda*phi**4))
+        kin_s = [jnp.sum((self.dt_site)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
                  for d in range(1, self.D+1)]
-        kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link.real))
+        kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
         return pot + t*(jnp.sum(jnp.array(kin_s)) + kin_t)
 
     def _observe(self, phi):

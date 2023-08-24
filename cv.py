@@ -146,13 +146,12 @@ if __name__ == '__main__':
     @jax.jit
     def f(x, p):
         return (jax.grad(lambda x, p: g.apply(p, x)[0],
-                argnums=0)(x, p)[0] - jax.grad(model.action)(x)[0] * g.apply(p, x))[0]
+                argnums=0)(x, p)[0] - jax.grad(model.action.real)(x)[0] * g.apply(p, x))[0]
 
     # define loss function
     @jax.jit
     def Loss(x, p):
-        o = model.observe(x)
-        return - 2. * model.observe(x) * f(x, p) + f(x, p)**2
+        return - 2. * model.observe(x).real * f(x, p) + f(x, p)**2
 
     Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -249,8 +248,8 @@ if __name__ == '__main__':
             # measurement once in a while
             for i in range(len(obs)):
                 chain.step(N=skip)
-                obs[i] = model.observe(chain.x)
-                cvs[i] = model.observe(chain.x) - f(chain.x, g_params)
+                obs[i] = model.observe(chain.x).real
+                cvs[i] = model.observe(chain.x).real - f(chain.x, g_params)
 
             # print(f'{np.mean(phases).real} {np.abs(np.mean(phases))} {bootstrap(np.array(phases))} ({np.mean(np.abs(chain.x))} {np.real(np.mean(acts))} {np.mean(acts)} {grad_abs} {chain.acceptance_rate()})', flush=True)
             print(f'{np.mean(obs).real} {bootstrap(np.array(cvs))} ({np.mean(np.abs(chain.x))} {chain.acceptance_rate()})', flush=True)
