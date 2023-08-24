@@ -31,7 +31,7 @@ class Model:
     m2: float
     lamda: float
     dt: float = 1.
-    # sk_shape: str = 'S'
+    sk_shape: str = 'S'
 
     def __post_init__(self):
         self.D = len(self.geom)
@@ -54,7 +54,7 @@ class Model:
     def _action_quadratic(self, phi):
         m2 = self.m2
         phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site)*(m2/2*phi**2)).real
+        pot = jnp.sum((self.dt_site.real)*(m2/2*phi**2)).real
         kin_s = [jnp.sum((self.dt_site.real)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
                  for d in range(1, self.D+1)]
         kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
