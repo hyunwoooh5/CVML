@@ -40,13 +40,13 @@ class Model:
         self.shape = (self.NT,)+self.geom
         self.contour = sk_contour(self.nbeta, self.nt, shape=self.sk_shape)
         self.contour_site = jnp.array(
-           [(self.contour[i]+self.contour[(i-1) % self.NT])/2 for i in range(self.NT)])
+            [(self.contour[i]+self.contour[(i-1) % self.NT])/2 for i in range(self.NT)])
         self.dt_link = self.dt * \
             jnp.tile(self.contour.reshape(
                 (self.NT,)+(1,)*self.D), (1,)+self.geom)
         self.dt_site = self.dt * \
             jnp.tile(self.contour_site.reshape(
-               (self.NT,)+(1,)*self.D), (1,)+self.geom)
+                (self.NT,)+(1,)*self.D), (1,)+self.geom)
 
         # Backwards compatibility
         self.periodic_contour = False
@@ -78,11 +78,11 @@ class Model:
 
     def _observe(self, phi):
         # return jnp.array([phi[0]*phi[i] for i in range(self.NT)] + [self._action(phi)])
-        # phi_re = phi.reshape(self.shape)
+        phi_re = phi.reshape(self.shape)
         # return jnp.array([jnp.mean(phi_re * jnp.roll(phi_re, -i, axis=1)) for i in range(int(self.dof/self.NT))] + [self._action(phi)]) # only for 1D
-        # phi_av = jnp.mean(phi_re, axis=1) # only for 1D
+        phi_av = jnp.mean(phi_re, axis=1)  # only for 1D
         # return jnp.array([jnp.mean(phi_av * jnp.roll(phi_av, -i)) for i in range(self.NT)] + [self._action(phi)])
-
+        return phi_av[self.NT//2] * phi_re[0, 0]
         return phi[0] * phi[self.dof//2]
 
     def _phi(self, z):
