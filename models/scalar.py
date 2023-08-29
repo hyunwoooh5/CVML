@@ -63,7 +63,7 @@ class Model:
     def _action_quartic(self, phi):
         lamda = self.lamda
         phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site)*(lamda*phi**4))
+        pot = jnp.sum((self.dt_site)*(lamda*phi**4)/24)
         return pot
 
     def _action(self, phi, t=1.):
