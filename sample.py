@@ -52,7 +52,7 @@ if args.dp:
 with open(args.model, 'rb') as f:
     model = eval(f.read())
 
-with open(args.contour, 'rb') as f:
+with open(args.cv, 'rb') as f:
     g, g_params = pickle.load(f)
 
 contour_ikey, chain_key = jax.random.split(key, 2)
