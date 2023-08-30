@@ -66,13 +66,13 @@ if args.skip == 30:
 
 @jax.jit
 def f(x, p):
-    return (jax.grad(lambda x, p: g.apply(p, x),
-                     argnums=0)(x, p)[0] - jax.grad(model.action)(x)[0] * g.apply(p, x))[0]
+    return (jax.grad(lambda x, p: g.apply(p, x)[0],
+                     argnums=0)(x, p)[0] - jax.grad(lambda y: model.action(y).real)(x)[0] * g.apply(p, x))[0]
 
 
 @jax.jit
 def observe(x, p):
-    return model.observe(x) - f(x, p)
+    return jnp.array([model.observe(x) - f(x, p)])
 
 
 if args.replica:
