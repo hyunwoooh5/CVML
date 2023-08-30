@@ -48,7 +48,7 @@ class CV_MLP(nn.Module):
 
 class Naive(nn.Module):
     def __call__(self, x):
-        return x
+        return 0
 
 
 if __name__ == '__main__':
