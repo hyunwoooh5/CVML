@@ -81,7 +81,7 @@ class Model:
         phi_re = phi.reshape(self.shape)
         # return jnp.array([jnp.mean(phi_re * jnp.roll(phi_re, -i, axis=1)) for i in range(int(self.dof/self.NT))] + [self._action(phi)]) # only for 1D
         phi_av = jnp.mean(phi_re, axis=1)  # only for 1D
-        # return jnp.array([jnp.mean(phi_av * jnp.roll(phi_av, -i)) for i in range(self.NT)] + [self._action(phi)])
+        return jnp.array([jnp.mean(phi_av * jnp.roll(phi_av, -i)) for i in range(self.NT)] + [phi_av[i] for i in range(self.NT)] + [self._action(phi)])
         return phi_av[self.NT//2] * phi_re[0, 0]
         return phi[0] * phi[self.dof//2]
 

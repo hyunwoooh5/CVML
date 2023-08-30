@@ -72,7 +72,7 @@ def f(x, p):
 
 @jax.jit
 def observe(x, p):
-    return jnp.array([1.0, model.observe(x) - f(x, p)])
+    return 1.0, model.observe(x) - f(x, p)
 
 
 if args.replica:
@@ -90,9 +90,9 @@ try:
         def slc(it): return itertools.islice(it, args.samples)
 
     for x in slc(chain.iter(skip)):
-        obs = observe(x, g_params)
+        phase, obs = observe(x, g_params)
         obsstr = " ".join([str(x) for x in obs])
-        print(f'{obsstr} {chain.acceptance_rate()}', flush=True)
+        print(f'{phase} {obsstr} {chain.acceptance_rate()}', flush=True)
 
 except KeyboardInterrupt:
     pass
