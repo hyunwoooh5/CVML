@@ -72,7 +72,7 @@ def f(x, p):
 
 @jax.jit
 def observe(x, p):
-    return jnp.array([model.observe(x) - f(x, p)])
+    return jnp.array([1.0, model.observe(x) - f(x, p)])
 
 
 if args.replica:
