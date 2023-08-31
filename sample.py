@@ -102,7 +102,9 @@ try:
         phase, obs = observe(x, g_params)
         obsstr = " ".join([str(x) for x in obs])
         print(f'{phase} {obsstr} {chain.acceptance_rate()}', flush=True)
-        if args.config: configs.append(x); save()
+        if args.config:
+            configs.append(x)
+            if len(configs)%1000==0: save()
 
 
 except KeyboardInterrupt:
