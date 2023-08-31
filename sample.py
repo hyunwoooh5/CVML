@@ -22,6 +22,9 @@ jax.config.update('jax_platform_name', 'cpu')
 parser = argparse.ArgumentParser(description="Train contour")
 parser.add_argument('model', type=str, help="model filename")
 parser.add_argument('cv', type=str, help="cv filename")
+parser.add_argument('-c', '--config', action='store_true',
+                    help="save configurations")
+parser.add_argument('-cf', type=str, help="configurations file name")
 parser.add_argument('-r', '--replica', action='store_true',
                     help="use replica exchange")
 parser.add_argument('-nrep', '--nreplicas', type=int, default=30,
@@ -84,15 +87,24 @@ else:
 chain.calibrate()
 chain.step(N=args.thermalize*V)
 chain.calibrate()
+
+if args.config:
+    configs=[]
+    def save():
+        with open(args.cf, 'wb') as f:
+            pickle.dump(configs, f)
+
 try:
     def slc(it): return it
     if args.samples >= 0:
         def slc(it): return itertools.islice(it, args.samples)
-
     for x in slc(chain.iter(skip)):
         phase, obs = observe(x, g_params)
         obsstr = " ".join([str(x) for x in obs])
         print(f'{phase} {obsstr} {chain.acceptance_rate()}', flush=True)
+        if args.config: configs.append(x); save()
+
 
 except KeyboardInterrupt:
     pass
+        
