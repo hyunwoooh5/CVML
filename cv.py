@@ -244,6 +244,7 @@ if __name__ == '__main__':
 
             print(
                 f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}', flush=True)
+            save()
 
     else:
         # setup metropolis
