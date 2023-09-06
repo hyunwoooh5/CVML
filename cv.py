@@ -172,8 +172,8 @@ if __name__ == '__main__':
     opt_update_jit = jax.jit(opt.update)
 
     def save():
-        with open(args.cv, 'wb') as f:
-            pickle.dump((g, g_params), f)
+        with open(args.cv, 'wb') as aa:
+            pickle.dump((g, g_params), aa)
 
     def Grad_Mean(grads, weight):
         """
@@ -221,13 +221,13 @@ if __name__ == '__main__':
 
     # learning
     if args.config:
-        with open(args.cf, 'rb') as f:
-            configs = pickle.load(f)
+        with open(args.cf, 'rb') as aa: # variable name aa should be different from f for future
+            configs = pickle.load(aa)
 
         configs_test = configs[-10000:]
         configs = configs[:-10000]
 
-        for t in range(len(configs)//10000):
+        for t in range(len(configs)//10000+1):
             for s in range(10000//args.nstochastic):
                 for l in range(args.nstochastic):
                     grads[l] = Loss_grad(
