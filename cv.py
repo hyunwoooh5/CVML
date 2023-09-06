@@ -227,7 +227,28 @@ if __name__ == '__main__':
         configs_test = configs[-10000:]
         configs = configs[:-10000]
 
-        for t in range(len(configs)//10000+1):
+        while True:
+            rands = jax.random.choice(g_ikey, len(configs), (10000,))
+            for s in range(10000//args.nstochastic):
+                for l in range(args.nstochastic):
+                    grads[l] = Loss_grad(
+                        configs[rands[l]], g_params)
+
+                grad = Grad_Mean(grads, weight)
+                updates, opt_state = opt_update_jit(grad, opt_state)
+                g_params = optax.apply_updates(g_params, updates)
+
+            for i in range(10000):
+                obs[i] = model.observe(configs_test[i])
+                cvs[i] = model.observe(configs_test[i]) - \
+                    f(configs_test[i], g_params)
+        
+            print(
+                f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}', flush=True)
+            save()
+        
+        '''
+        for t in range(len(configs)//10000):
             for s in range(10000//args.nstochastic):
                 for l in range(args.nstochastic):
                     grads[l] = Loss_grad(
@@ -241,10 +262,12 @@ if __name__ == '__main__':
                 obs[i] = model.observe(configs_test[i])
                 cvs[i] = model.observe(configs_test[i]) - \
                     f(configs_test[i], g_params)
-
+        
             print(
                 f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}', flush=True)
             save()
+        '''
+    
 
     else:
         # setup metropolis
