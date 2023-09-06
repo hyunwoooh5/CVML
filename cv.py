@@ -232,7 +232,8 @@ if __name__ == '__main__':
             rands = jax.random.choice(g_ikey, len(configs), (10000,))
             for s in range(10000//args.nstochastic):
                 for l in range(args.nstochastic):
-                    grads[l] = Loss_grad(configs[rands[l]], g_params)
+                    grads[l] = Loss_grad(
+                        configs[rands[args.nstochastic*s+l]], g_params)
 
                 grad = Grad_Mean(grads, weight)
                 updates, opt_state = opt_update_jit(grad, opt_state)
