@@ -221,18 +221,18 @@ if __name__ == '__main__':
 
     # learning
     if args.config:
-        with open(args.cf, 'rb') as aa: # variable name aa should be different from f for future
+        with open(args.cf, 'rb') as aa:  # variable name aa should be different from f for future
             configs = pickle.load(aa)
 
         configs_test = configs[-10000:]
         configs = configs[:-10000]
 
         while True:
+            g_ikey, subkey = jax.random.split(g_ikey)
             rands = jax.random.choice(g_ikey, len(configs), (10000,))
             for s in range(10000//args.nstochastic):
                 for l in range(args.nstochastic):
-                    grads[l] = Loss_grad(
-                        configs[rands[l]], g_params)
+                    grads[l] = Loss_grad(configs[rands[l]], g_params)
 
                 grad = Grad_Mean(grads, weight)
                 updates, opt_state = opt_update_jit(grad, opt_state)
@@ -242,11 +242,11 @@ if __name__ == '__main__':
                 obs[i] = model.observe(configs_test[i])
                 cvs[i] = model.observe(configs_test[i]) - \
                     f(configs_test[i], g_params)
-        
+
             print(
                 f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}', flush=True)
             save()
-        
+
         '''
         for t in range(len(configs)//10000):
             for s in range(10000//args.nstochastic):
@@ -267,7 +267,6 @@ if __name__ == '__main__':
                 f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}', flush=True)
             save()
         '''
-    
 
     else:
         # setup metropolis
