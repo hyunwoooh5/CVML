@@ -46,11 +46,6 @@ class CV_MLP(nn.Module):
         return u
 
 
-class Naive(nn.Module):
-    def __call__(self, x):
-        return jnp.array([0.])
-
-
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(
@@ -60,8 +55,6 @@ if __name__ == '__main__':
     parser.add_argument('model', type=str, help="model filename")
     parser.add_argument('cv', type=str, help="cv filename")
     parser.add_argument('cf', type=str, help="configurations file name")
-    parser.add_argument('-R', '--real', action='store_true',
-                        help="output f=0")
     parser.add_argument('-i', '--init', action='store_true',
                         help="re-initialize even if cv already exists")
     parser.add_argument('-f', '--from', dest='fromfile', type=str,
@@ -81,14 +74,8 @@ if __name__ == '__main__':
                         help="seed PRNG with current time")
     parser.add_argument('-lr', '--learningrate', type=float, default=1e-4,
                         help="learning rate")
-    parser.add_argument('-S', '--skip', default=30, type=int,
-                        help='number of steps to skip')
     parser.add_argument('-N', '--nstochastic', default=1, type=int,
                         help="number of samples to estimate gradient")
-    parser.add_argument('-T', '--thermalize', default=0, type=int,
-                        help="number of MC steps (* d.o.f) to thermalize")
-    parser.add_argument('-Nt', '--tsteps', default=10000000, type=int,
-                        help="number of training")
     parser.add_argument('-o',  '--optimizer', choices=['adam', 'sgd', 'yogi'], default='adam',
                         help='optimizer to use')
     parser.add_argument('-s', '--schedule', action='store_true',
@@ -113,21 +100,9 @@ if __name__ == '__main__':
         model = eval(f.read())
     V = model.dof
 
-    skip = args.skip
-    if args.skip == 30:
-        skip = V
-
     g_ikey, chain_key = jax.random.split(key, 2)
 
     # define the function g
-    if args.real:
-        # Output real plane and quit
-        g = Naive()
-        g_params = g.init(g_ikey, jnp.zeros(V))
-        with open(args.cv, 'wb') as f:
-            pickle.dump((g, g_params), f)
-        sys.exit(0)
-
     loaded = False
     if not args.init and not args.fromfile:
         try:
@@ -220,6 +195,7 @@ if __name__ == '__main__':
     with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
         configs = pickle.load(aa)
 
+    # separate configurations for training and test
     configs_test = configs[-10000:]
     configs = configs[:-10000]
 
@@ -227,7 +203,7 @@ if __name__ == '__main__':
     while True:
         g_ikey, subkey = jax.random.split(g_ikey)
         rands = jax.random.choice(g_ikey, len(configs), (10000,))
-        for s in range(10000//args.nstochastic):
+        for s in range(steps):
             for l in range(args.nstochastic):
                 grads[l] = Loss_grad(
                     configs[rands[args.nstochastic*s+l]], g_params)
