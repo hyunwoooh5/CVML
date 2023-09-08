@@ -21,10 +21,7 @@ jax.config.update('jax_platform_name', 'cpu')
 
 parser = argparse.ArgumentParser(description="Train contour")
 parser.add_argument('model', type=str, help="model filename")
-parser.add_argument('cv', type=str, help="cv filename")
-parser.add_argument('-c', '--config', action='store_true',
-                    help="save configurations")
-parser.add_argument('-cf', type=str, help="configurations file name")
+parser.add_argument('cf', type=str, help="configurations file name")
 parser.add_argument('-r', '--replica', action='store_true',
                     help="use replica exchange")
 parser.add_argument('-nrep', '--nreplicas', type=int, default=30,
@@ -55,9 +52,6 @@ if args.dp:
 with open(args.model, 'rb') as f:
     model = eval(f.read())
 
-with open(args.cv, 'rb') as f:
-    g, g_params = pickle.load(f)
-
 contour_ikey, chain_key = jax.random.split(key, 2)
 
 V = model.dof
@@ -66,16 +60,9 @@ skip = args.skip
 if args.skip == 30:
     skip = V
 
-
 @jax.jit
-def f(x, p):
-    return (jax.grad(lambda x, p: g.apply(p, x)[0],
-                     argnums=0)(x, p)[0] - jax.grad(lambda y: model.action(y).real)(x)[0] * g.apply(p, x))[0]
-
-
-@jax.jit
-def observe(x, p):
-    return 1.0, model.observe(x) - f(x, p)
+def observe(x):
+    return 1.0, model.observe(x)
 
 
 if args.replica:
@@ -88,23 +75,21 @@ chain.calibrate()
 chain.step(N=args.thermalize*V)
 chain.calibrate()
 
-if args.config:
-    configs=[]
-    def save():
-        with open(args.cf, 'wb') as f:
-            pickle.dump(configs, f)
+configs=[]
+def save():
+    with open(args.cf, 'wb') as f:
+        pickle.dump(configs, f)
 
 try:
     def slc(it): return it
     if args.samples >= 0:
         def slc(it): return itertools.islice(it, args.samples)
     for x in slc(chain.iter(skip)):
-        phase, obs = observe(x, g_params)
+        phase, obs = observe(x)
         obsstr = " ".join([str(x) for x in obs])
         print(f'{phase} {obsstr} {chain.acceptance_rate()}', flush=True)
-        if args.config:
-            configs.append(x)
-            if len(configs)%1000==0: save()
+        configs.append(x)
+        if len(configs)%1000==0: save()
 
 
 except KeyboardInterrupt:

@@ -59,9 +59,7 @@ if __name__ == '__main__':
         fromfile_prefix_chars='@')
     parser.add_argument('model', type=str, help="model filename")
     parser.add_argument('cv', type=str, help="cv filename")
-    parser.add_argument('-c', '--config', action='store_true',
-                        help="use given configurations")
-    parser.add_argument('-cf', type=str, help="configurations file name")
+    parser.add_argument('cf', type=str, help="configurations file name")
     parser.add_argument('-R', '--real', action='store_true',
                         help="output f=0")
     parser.add_argument('-i', '--init', action='store_true',
@@ -219,108 +217,30 @@ if __name__ == '__main__':
     obs = [0] * 10000
     cvs = [0] * 10000
 
-    # learning
-    if args.config:
-        with open(args.cf, 'rb') as aa:  # variable name aa should be different from f for future
-            configs = pickle.load(aa)
+    with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
+        configs = pickle.load(aa)
 
-        configs_test = configs[-10000:]
-        configs = configs[:-10000]
+    configs_test = configs[-10000:]
+    configs = configs[:-10000]
 
-        while True:
-            g_ikey, subkey = jax.random.split(g_ikey)
-            rands = jax.random.choice(g_ikey, len(configs), (10000,))
-            for s in range(10000//args.nstochastic):
-                for l in range(args.nstochastic):
-                    grads[l] = Loss_grad(
-                        configs[rands[args.nstochastic*s+l]], g_params)
+    # Training
+    while True:
+        g_ikey, subkey = jax.random.split(g_ikey)
+        rands = jax.random.choice(g_ikey, len(configs), (10000,))
+        for s in range(10000//args.nstochastic):
+            for l in range(args.nstochastic):
+                grads[l] = Loss_grad(
+                    configs[rands[args.nstochastic*s+l]], g_params)
 
-                grad = Grad_Mean(grads, weight)
-                updates, opt_state = opt_update_jit(grad, opt_state)
-                g_params = optax.apply_updates(g_params, updates)
+            grad = Grad_Mean(grads, weight)
+            updates, opt_state = opt_update_jit(grad, opt_state)
+            g_params = optax.apply_updates(g_params, updates)
 
-            for i in range(10000):
-                obs[i] = model.observe(configs_test[i])
-                cvs[i] = model.observe(configs_test[i]) - \
-                    f(configs_test[i], g_params)
+        for i in range(10000):
+            obs[i] = model.observe(configs_test[i])
+            cvs[i] = model.observe(configs_test[i]) - \
+                f(configs_test[i], g_params)
 
-            print(
-                f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}', flush=True)
-            save()
-
-        '''
-        for t in range(len(configs)//10000):
-            for s in range(10000//args.nstochastic):
-                for l in range(args.nstochastic):
-                    grads[l] = Loss_grad(
-                        configs[10000*t+args.nstochastic*s+l], g_params)
-
-                grad = Grad_Mean(grads, weight)
-                updates, opt_state = opt_update_jit(grad, opt_state)
-                g_params = optax.apply_updates(g_params, updates)
-
-            for i in range(10000):
-                obs[i] = model.observe(configs_test[i])
-                cvs[i] = model.observe(configs_test[i]) - \
-                    f(configs_test[i], g_params)
-        
-            print(
-                f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}', flush=True)
-            save()
-        '''
-
-    else:
-        # setup metropolis
-        if args.replica:
-            chain = replica.ReplicaExchange(model.action, jnp.zeros(
-                V), chain_key, delta=1./jnp.sqrt(V), max_hbar=args.max_hbar, Nreplicas=args.nreplicas)
-        else:
-            chain = metropolis.Chain(model.action, jnp.zeros(
-                V), chain_key, delta=1./jnp.sqrt(V))
-
-        chain.calibrate()
-        chain.step(N=args.thermalize*V)
-        try:
-            for t in range(args.tsteps):
-                for s in range(steps):
-                    chain.calibrate()
-                    for l in range(args.nstochastic):
-                        chain.step(N=skip)
-                        # gradient descent
-                        grads[l] = Loss_grad(chain.x, g_params)
-
-                    grad = Grad_Mean(grads, weight)
-                    updates, opt_state = opt_update_jit(grad, opt_state)
-                    g_params = optax.apply_updates(g_params, updates)
-
-                '''
-                # tracking the size of gradient
-                grad_abs = 0.
-            
-                grad_abs += np.linalg.norm(grad['params']
-                                        ['Dense_'+str(0)]['kernel'])
-                grad_abs += np.linalg.norm(grad['params']
-                                            ['Dense_'+str(0)]['bias'])
-
-                    for j in range(args.layers):
-                        grad_abs += np.linalg.norm(grad['params']
-                                                ['MLP_'+str(0)]['Dense_'+str(j)]['kernel'])
-                        grad_abs += np.linalg.norm(grad['params']
-                                                ['MLP_'+str(0)]['Dense_'+str(j)]['bias'])
-                '''
-
-                # measurement once in a while
-                for i in range(len(obs)):
-                    chain.step(N=skip)
-                    obs[i] = model.observe(chain.x).real
-                    cvs[i] = model.observe(chain.x).real - f(chain.x, g_params)
-
-                # print(f'{np.mean(phases).real} {np.abs(np.mean(phases))} {bootstrap(np.array(phases))} ({np.mean(np.abs(chain.x))} {np.real(np.mean(acts))} {np.mean(acts)} {grad_abs} {chain.acceptance_rate()})', flush=True)
-                print(
-                    f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))} ({np.mean(np.abs(chain.x))} {chain.acceptance_rate()})', flush=True)
-
-                save()
-
-        except KeyboardInterrupt:
-            print()
-            save()
+        print(
+            f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}', flush=True)
+        save()
