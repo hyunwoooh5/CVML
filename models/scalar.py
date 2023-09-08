@@ -51,57 +51,23 @@ class Model:
         # Backwards compatibility
         self.periodic_contour = False
 
-    def _action_quadratic(self, phi):
-        m2 = self.m2
-        phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site)*(m2/2*phi**2))
-        kin_s = [jnp.sum((self.dt_site)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
-                 for d in range(1, self.D+1)]
-        kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
-        return pot + jnp.sum(jnp.array(kin_s)) + kin_t
-
-    def _action_quartic(self, phi):
-        lamda = self.lamda
-        phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site)*(lamda*phi**4)/24)
-        return pot
-
-    def _action(self, phi, t=1.):
+    def action(self, phi):
         m2 = self.m2
         lamda = self.lamda
         phi = phi.reshape(self.shape)
-        pot = jnp.sum((self.dt_site)*(t*m2/2*phi**2 + lamda*phi**4))
+        pot = jnp.sum((self.dt_site)*(m2/2*phi**2 + lamda*phi**4/24))
         kin_s = [jnp.sum((self.dt_site)*(jnp.roll(phi, -1, axis=d)-phi)**2)/2
                  for d in range(1, self.D+1)]
         kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
-        return pot + t*(jnp.sum(jnp.array(kin_s)) + kin_t)
+        return pot + (jnp.sum(jnp.array(kin_s)) + kin_t)
 
-    def _observe(self, phi):
+    def observe(self, phi):
         # return jnp.array([phi[0]*phi[i] for i in range(self.NT)] + [self._action(phi)])
         phi_re = phi.reshape(self.shape)
         # return jnp.array([jnp.mean(phi_re * jnp.roll(phi_re, -i, axis=1)) for i in range(int(self.dof/self.NT))] + [self._action(phi)]) # only for 1D
         phi_av = jnp.mean(phi_re, axis=1)  # only for 1D
-        return jnp.array([jnp.mean(phi_av * jnp.roll(phi_av, -i)) for i in range(self.NT)] + [phi_av[i] for i in range(self.NT)] + [self._action(phi)])
-        return phi_av[self.NT//2] * phi_re[0, 0]
+        #return jnp.array([jnp.mean(phi_av * jnp.roll(phi_av, -i)) for i in range(self.NT)] + [phi_av[i] for i in range(self.NT)] + [self._action(phi)])
+        return jnp.mean(phi_av * jnp.roll(phi_av, self.NT//2))
         return phi[0] * phi[self.dof//2]
 
-    def _phi(self, z):
-        if self.lamda == 0:
-            # TODO this is not right. Need to invert the whole matrix.
-            raise "Free theory not yet supported"
-            coefs = self._action_quadratic(z*0+1)
-            phases = coefs / jnp.abs(coefs)
-            return z / (phases**(1/2))
 
-        if self.sk_shape == 'S':
-            coefs = (self.dt_site)*self.lamda
-            phases = coefs / jnp.abs(coefs)
-            return z / (phases**(1/4)).reshape(z.shape)
-        else:
-            raise "Non-S shapes not supported"
-
-    def action(self, z, t=1.):
-        return self._action(z, t=t)
-
-    def observe(self, z):
-        return self._observe(z)
