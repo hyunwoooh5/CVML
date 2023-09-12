@@ -72,6 +72,8 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0, help="random seed")
     parser.add_argument('--seed-time', action='store_true',
                         help="seed PRNG with current time")
+    parser.add_argument('--dp', action='store_true',
+                    help="turn on double precision")
     parser.add_argument('-lr', '--learningrate', type=float, default=1e-4,
                         help="learning rate")
     parser.add_argument('-N', '--nstochastic', default=1, type=int,
@@ -90,6 +92,9 @@ if __name__ == '__main__':
                         help="weight for gradients")
 
     args = parser.parse_args()
+
+    if args.dp:
+        jax.config.update('jax_enable_x64', True)
 
     seed = args.seed
     if args.seed_time:
@@ -122,8 +127,8 @@ if __name__ == '__main__':
     # define subtraction function
     @jax.jit
     def f(x, p):
-        return (jax.grad(lambda x, p: g.apply(p, x)[0],
-                argnums=0)(x, p)[0] - jax.grad(lambda y: model.action(y).real)(x)[0] * g.apply(p, x))[0]
+        return jnp.sum((jax.grad(lambda x, p: g.apply(p, x)[0],
+                argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x)))
 
     # define loss function
     @jax.jit
@@ -189,15 +194,15 @@ if __name__ == '__main__':
     weight = eval(args.weight)
 
     # measurement
-    obs = [0] * 10000
-    cvs = [0] * 10000
+    obs = [0] * 1000
+    cvs = [0] * 1000
 
     with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
         configs = pickle.load(aa)
 
     # separate configurations for training and test
-    configs_test = configs[-10000:]
-    configs = configs[:-10000]
+    configs_test = configs[:1000]
+    configs = configs[1000:]
 
     # Training
     while True:
@@ -212,7 +217,7 @@ if __name__ == '__main__':
             updates, opt_state = opt_update_jit(grad, opt_state)
             g_params = optax.apply_updates(g_params, updates)
 
-        for i in range(10000):
+        for i in range(1000):
             obs[i] = model.observe(configs_test[i])
             cvs[i] = model.observe(configs_test[i]) - \
                 f(configs_test[i], g_params)
