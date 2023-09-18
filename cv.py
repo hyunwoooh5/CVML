@@ -32,7 +32,7 @@ class MLP(nn.Module):
             x = nn.Dense(feat, kernel_init=self.kernel_init,
                          bias_init=self.bias_init)(x)
             x = nn.relu(x)
-        x = nn.Dense(1, kernel_init=self.kernel_init,
+        x = nn.Dense(1, use_bias=False, kernel_init=self.kernel_init,
                      bias_init=self.bias_init)(x)
         return x
 
@@ -44,6 +44,7 @@ class CV_MLP(nn.Module):
     def __call__(self, x):
         u = MLP(self.features)(x)
         return u
+        return jnp.sum(u)
 
 
 if __name__ == '__main__':
@@ -73,7 +74,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed-time', action='store_true',
                         help="seed PRNG with current time")
     parser.add_argument('--dp', action='store_true',
-                    help="turn on double precision")
+                        help="turn on double precision")
     parser.add_argument('-lr', '--learningrate', type=float, default=1e-4,
                         help="learning rate")
     parser.add_argument('-N', '--nstochastic', default=1, type=int,
@@ -90,6 +91,10 @@ if __name__ == '__main__':
                         help="b2 parameter for adam")
     parser.add_argument('--weight', type=str, default='jnp.ones(len(grads))',
                         help="weight for gradients")
+    parser.add_argument('-nt', '--n_train',type=int, default=1000,
+                        help="number of training set")
+    parser.add_argument('-ns', '--n_test',type=int, default=1000,
+                        help="number of test set")
 
     args = parser.parse_args()
 
@@ -127,8 +132,12 @@ if __name__ == '__main__':
     # define subtraction function
     @jax.jit
     def f(x, p):
-        return jnp.sum((jax.grad(lambda x, p: g.apply(p, x)[0],
-                argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x)))
+        j = jax.jacfwd(lambda y: g.apply(p, y))(x)
+        return j.diagonal().sum() - jnp.sum(g.apply(p, x)@jax.grad(lambda y: model.action(y).real)(x))
+        return jnp.sum(jax.grad(lambda x, p: g.apply(p, x), argnum=0)(x, p) - jnp.sum(jax.grad(lambda y: model.action(y).real)(x) @ g.apply(p, x)))
+
+        return jnp.sum(jax.grad(lambda x, p: g.apply(p, x), argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x))
+        # + jnp.sum((jax.grad(lambda x, p: g.apply(p, x)[0], argnums=0)(x**3, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x**3)))
 
     # define loss function
     @jax.jit
@@ -140,9 +149,9 @@ if __name__ == '__main__':
     if args.schedule:
         sched = optax.exponential_decay(
             init_value=args.learningrate,
-            transition_steps=int(args.care*1000),
+            transition_steps=int(args.care),
             decay_rate=0.99,
-            end_value=2e-5)
+            end_value=1e-6)
     else:
         sched = optax.constant_schedule(args.learningrate)
     opt = getattr(optax, args.optimizer)(sched, args.b1, args.b2)
@@ -194,15 +203,39 @@ if __name__ == '__main__':
     weight = eval(args.weight)
 
     # measurement
-    obs = [0] * 1000
-    cvs = [0] * 1000
+    obs = [0] * args.n_test
+    cvs = [0] * args.n_test
 
     with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
         configs = pickle.load(aa)
 
     # separate configurations for training and test
-    configs_test = configs[:1000]
-    configs = configs[1000:]
+    configs_test = configs[:args.n_test]
+    configs = configs[-args.n_train:]
+    '''
+    # Scott's method
+    phi = jnp.array(configs[:1000])  # 1000 x 64
+    K = phi.shape[0]  # 1000
+    dS = jax.vmap(jax.grad(lambda y: model.action(y).real))(phi)  # 1000 x 64
+
+    def basis_(phi, dS):
+        phi = phi.reshape((K, 8**2))
+        dS = dS.reshape((K, 8**2))
+
+        def f_(phi):
+            return jnp.array([phi[0]])
+        f = jax.vmap(f_)(phi)
+        Nfs=f.shape[1]
+        print(Nfs)
+        df = jax.vmap(jax.jacfwd(f_))(phi)  # For kronecker delta
+        print(df.shape)
+        sub = df - jnp.einsum('ki,kj -> kij', f, dS)
+        return sub.reshape((K, 8*Nfs))
+
+    print(basis_(phi, dS))
+    print(phi.reshape((K, 8, 8))[0])
+
+    '''
 
     # Training
     while True:
@@ -210,6 +243,8 @@ if __name__ == '__main__':
         rands = jax.random.choice(g_ikey, len(configs), (10000,))
         for s in range(steps):
             for l in range(args.nstochastic):
+                # print(g.apply(g_params, configs[rands[args.nstochastic*s+l]]))
+                # print(f(configs[rands[args.nstochastic*s+l]], g_params))
                 grads[l] = Loss_grad(
                     configs[rands[args.nstochastic*s+l]], g_params)
 
@@ -217,11 +252,11 @@ if __name__ == '__main__':
             updates, opt_state = opt_update_jit(grad, opt_state)
             g_params = optax.apply_updates(g_params, updates)
 
-        for i in range(1000):
+        for i in range(args.n_test):
             obs[i] = model.observe(configs_test[i])
             cvs[i] = model.observe(configs_test[i]) - \
                 f(configs_test[i], g_params)
 
         print(
-            f'{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}', flush=True)
+            f"{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))} {g_params['params']['MLP_0']['Dense_0']['kernel'][0]}", flush=True)
         save()
