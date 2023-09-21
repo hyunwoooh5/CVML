@@ -47,6 +47,7 @@ class Model:
         self.dt_site = self.dt * \
             jnp.tile(self.contour_site.reshape(
                 (self.NT,)+(1,)*self.D), (1,)+self.geom)
+        self.L = int((self.dof//self.NT)**1/(self.D))
 
         # Backwards compatibility
         self.periodic_contour = False
@@ -61,13 +62,30 @@ class Model:
         kin_t = jnp.sum((jnp.roll(phi, -1, axis=0) - phi)**2/(2*self.dt_link))
         return pot + (jnp.sum(jnp.array(kin_s)) + kin_t)
 
+    def action_local(self, phi, n):  # only for 1+1D
+        phi_n = phi[n]
+        phi = phi.reshape(self.shape)
+
+        t = n // self.nbeta
+        x = (n - t * self.nbeta) // self.L
+
+        # Rolling is slow
+        idx_mt = (t - 1) % self.nbeta, x
+        idx_mx = t, (x - 1) % self.L
+        idx_pt = (t + 1) % self.nbeta, x
+        idx_px = t, (x + 1) % self.L
+
+        pot = self.m2/2. * phi_n**2 + self.lamda/24. * phi_n**4
+        kint = ((phi[idx_pt]-phi_n)**2 + (phi[idx_mt]-phi_n)**2) / 2.
+        kinx = ((phi[idx_px]-phi_n)**2 + (phi[idx_mx]-phi_n)**2) / 2.
+
+        return pot+kint+kinx
+
     def observe(self, phi):
-        # return jnp.array([phi[0]*phi[i] for i in range(self.NT)] + [self._action(phi)])
+        # return jnp.array([phi[0]*phi[i] for i in range(self.NT)] + [self.action(phi)])
         phi_re = phi.reshape(self.shape)
-        # return jnp.array([jnp.mean(phi_re * jnp.roll(phi_re, -i, axis=1)) for i in range(int(self.dof/self.NT))] + [self._action(phi)]) # only for 1D
+        # return jnp.array([jnp.mean(phi_re * jnp.roll(phi_re, -i, axis=1)) for i in range(int(self.dof/self.NT))] + [self.action(phi)]) # only for 1D
         phi_av = jnp.mean(phi_re, axis=1)  # only for 1D
-        #return jnp.array([jnp.mean(phi_av * jnp.roll(phi_av, -i)) for i in range(self.NT)] + [phi_av[i] for i in range(self.NT)] + [self._action(phi)])
+        # return jnp.array([jnp.mean(phi_av * jnp.roll(phi_av, -i)) for i in range(self.NT)] + [phi_av[i] for i in range(self.NT)] + [self.action(phi)])
         return jnp.mean(phi_av * jnp.roll(phi_av, self.NT//2))
         return phi[0] * phi[self.dof//2]
-
-

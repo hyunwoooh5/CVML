@@ -39,6 +39,7 @@ parser.add_argument('--dp', action='store_true',
                     help="turn on double precision")
 parser.add_argument('-T', '--thermalize', default=0,
                     type=int, help="number of MC steps (* d.o.f) to thermalize")
+parser.add_argument('-l', '--local', action='store_true', help="use local   action")
 args = parser.parse_args()
 
 seed = args.seed
@@ -68,6 +69,8 @@ def observe(x):
 if args.replica:
     chain = replica.ReplicaExchange(model.action, jnp.zeros(
         V), chain_key, delta=1./jnp.sqrt(V), max_hbar=args.max_hbar, Nreplicas=args.nreplicas)
+elif args.local:
+    chain = metropolis.Chain_Local(model.action_local, jnp.zeros(V), chain_key, delta=1.)
 else:
     chain = metropolis.Chain(model.action, jnp.zeros(
         V), chain_key, delta=1./jnp.sqrt(V))
@@ -86,7 +89,10 @@ try:
         def slc(it): return itertools.islice(it, args.samples)
     for x in slc(chain.iter(skip)):
         phase, obs = observe(x)
-        obsstr = " ".join([str(x) for x in obs])
+        if jnp.size(obs)==1: 
+            obsstr = str(obs)
+        else:
+            obsstr = " ".join([str(x) for x in obs])
         print(f'{phase} {obsstr} {chain.acceptance_rate()}', flush=True)
         configs.append(x)
         if len(configs)%1000==0: save()
