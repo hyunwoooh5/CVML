@@ -91,9 +91,9 @@ if __name__ == '__main__':
                         help="b2 parameter for adam")
     parser.add_argument('--weight', type=str, default='jnp.ones(len(grads))',
                         help="weight for gradients")
-    parser.add_argument('-nt', '--n_train',type=int, default=1000,
+    parser.add_argument('-nt', '--n_train', type=int, default=1000,
                         help="number of training set")
-    parser.add_argument('-ns', '--n_test',type=int, default=1000,
+    parser.add_argument('-ns', '--n_test', type=int, default=1000,
                         help="number of test set")
 
     args = parser.parse_args()
@@ -237,6 +237,12 @@ if __name__ == '__main__':
 
     '''
 
+    '''
+    print(g_params)
+    new_weight = jnp.array([[-1.]])
+    g_params['params']['MLP_0']['Dense_0']['kernel']=new_weight
+    print(g_params)
+    '''
     # Training
     while True:
         g_ikey, subkey = jax.random.split(g_ikey)
