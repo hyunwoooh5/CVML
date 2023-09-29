@@ -158,7 +158,6 @@ if __name__ == '__main__':
                 str(layers)]['kernel']**2).sum()
 
         return sum
-    print(ridge(g_params))
 
     # define loss function
     @jax.jit
@@ -235,7 +234,7 @@ if __name__ == '__main__':
     configs_test = configs[:args.n_test]
     configs = configs[-args.n_train:]
 
-    # Unbiased estimation
+    # Unbiased estimation for preventing overfitting
     mu = float(np.mean([model.observe(configs[i])
                         for i in range(args.n_train)]))
 
