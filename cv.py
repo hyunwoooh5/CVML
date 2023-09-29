@@ -21,9 +21,10 @@ jax.config.update("jax_debug_infs", True)
 
 
 class MLP(nn.Module):
+    volume: int
     features: Sequence[int]
     kernel_init: Callable = nn.initializers.variance_scaling(
-        2, "fan_in", "truncated_normal")  # for ReLU
+        2, "fan_in", "truncated_normal")  # for ReLU / CELU
     bias_init: Callable = nn.initializers.zeros
 
     @nn.compact
@@ -31,20 +32,20 @@ class MLP(nn.Module):
         for feat in self.features:
             x = nn.Dense(feat, kernel_init=self.kernel_init,
                          bias_init=self.bias_init)(x)
-            x = nn.relu(x)
-        x = nn.Dense(1, use_bias=False, kernel_init=self.kernel_init,
-                     bias_init=self.bias_init)(x)
+            x = nn.celu(x)
+        x = nn.Dense(self.volume, use_bias=False,
+                     kernel_init=self.kernel_init)(x)
         return x
 
 
 class CV_MLP(nn.Module):
+    volume: int
     features: Sequence[int]
 
     @nn.compact
     def __call__(self, x):
-        u = MLP(self.features)(x)
-        return u
-        return jnp.sum(u)
+        x = MLP(self.volume, self.features)(x)
+        return x
 
 
 if __name__ == '__main__':
@@ -126,23 +127,43 @@ if __name__ == '__main__':
             g, g_params = pickle.load(f)
         loaded = True
     if not loaded:
-        g = CV_MLP([args.width*V]*args.layers)
+        g = CV_MLP(V, [args.width*V]*args.layers)
         g_params = g.init(g_ikey, jnp.zeros(V))
 
     # define subtraction function
     @jax.jit
     def f(x, p):
+        # diagonal sum (Stein's identity)
         j = jax.jacfwd(lambda y: g.apply(p, y))(x)
-        return j.diagonal().sum() - jnp.sum(g.apply(p, x)@jax.grad(lambda y: model.action(y).real)(x))
-        return jnp.sum(jax.grad(lambda x, p: g.apply(p, x), argnum=0)(x, p) - jnp.sum(jax.grad(lambda y: model.action(y).real)(x) @ g.apply(p, x)))
+        return j.diagonal().sum() - g.apply(p, x)@jax.grad(lambda y: model.action(y).real)(x)
 
-        return jnp.sum(jax.grad(lambda x, p: g.apply(p, x), argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x))
-        # + jnp.sum((jax.grad(lambda x, p: g.apply(p, x)[0], argnums=0)(x**3, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x**3)))
+        # g: R^V -> R
+        # return jnp.sum(jax.grad(lambda x, p: g.apply(p, x)[0], argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x))
+
+        # All possible sum
+        # return j.sum() - jnp.kron(g.apply(p, x), jax.grad(lambda y: model.action(y).real)(x)).sum()
+
+    # regularization, not yet implemented
+    def ridge(p):
+        sum = 0
+        layers = len(p['params']['MLP_0'])-1
+
+        def sum_at_i(i, sum):
+            print(type(str(i)))
+            print('Dense_'+str(i))
+            return sum + (p['params']['MLP_0']['Dense_'+str(i)]['kernel']**2).sum() + (p['params']['MLP_0']['Dense_'+str(i)]['bias']**2).sum()
+
+        sum = jax.lax.fori_loop(0, layers-1, sum_at_i, sum)
+        sum += (p['params']['MLP_0']['Dense_' +
+                str(layers)]['kernel']**2).sum()
+
+        return sum
+    print(ridge(g_params))
 
     # define loss function
     @jax.jit
     def Loss(x, p):
-        return - 2. * model.observe(x).real * f(x, p) + f(x, p)**2
+        return (model.observe(x).real - f(x, p) - mu)**2
 
     Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -193,6 +214,7 @@ if __name__ == '__main__':
         m = (sum(y) / sum(w))
         ms = []
         for _ in range(N):
+            # Using numpy random seed so it might change
             s = np.random.choice(range(len(x)), len(x))
             ms.append((sum(y[s]) / sum(w[s])))
         ms = np.array(ms)
@@ -212,45 +234,17 @@ if __name__ == '__main__':
     # separate configurations for training and test
     configs_test = configs[:args.n_test]
     configs = configs[-args.n_train:]
-    '''
-    # Scott's method
-    phi = jnp.array(configs[:1000])  # 1000 x 64
-    K = phi.shape[0]  # 1000
-    dS = jax.vmap(jax.grad(lambda y: model.action(y).real))(phi)  # 1000 x 64
 
-    def basis_(phi, dS):
-        phi = phi.reshape((K, 8**2))
-        dS = dS.reshape((K, 8**2))
+    # Unbiased estimation
+    mu = float(np.mean([model.observe(configs[i])
+                        for i in range(args.n_train)]))
 
-        def f_(phi):
-            return jnp.array([phi[0]])
-        f = jax.vmap(f_)(phi)
-        Nfs=f.shape[1]
-        print(Nfs)
-        df = jax.vmap(jax.jacfwd(f_))(phi)  # For kronecker delta
-        print(df.shape)
-        sub = df - jnp.einsum('ki,kj -> kij', f, dS)
-        return sub.reshape((K, 8*Nfs))
-
-    print(basis_(phi, dS))
-    print(phi.reshape((K, 8, 8))[0])
-
-    '''
-
-    '''
-    print(g_params)
-    new_weight = jnp.array([[-1.]])
-    g_params['params']['MLP_0']['Dense_0']['kernel']=new_weight
-    print(g_params)
-    '''
     # Training
     while True:
         g_ikey, subkey = jax.random.split(g_ikey)
         rands = jax.random.choice(g_ikey, len(configs), (10000,))
         for s in range(steps):
             for l in range(args.nstochastic):
-                # print(g.apply(g_params, configs[rands[args.nstochastic*s+l]]))
-                # print(f(configs[rands[args.nstochastic*s+l]], g_params))
                 grads[l] = Loss_grad(
                     configs[rands[args.nstochastic*s+l]], g_params)
 
@@ -264,5 +258,5 @@ if __name__ == '__main__':
                 f(configs_test[i], g_params)
 
         print(
-            f"{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))} {g_params['params']['MLP_0']['Dense_0']['kernel'][0]}", flush=True)
+            f"{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}", flush=True)
         save()
