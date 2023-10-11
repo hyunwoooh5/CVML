@@ -48,6 +48,41 @@ class CV_MLP(nn.Module):
         return x
 
 
+class CNN(nn.Module):
+    volume: int
+    features: Sequence[int]
+    kernel_init: Callable = nn.initializers.variance_scaling(
+        2, "fan_in", "truncated_normal")  # for ReLU / CELU
+    bias_init: Callable = nn.initializers.zeros
+
+    @nn.compact
+    def __call__(self, x):
+        for feat in self.features:
+            x = nn.Conv(feat, kernel_size=(3, 3), kernel_init=self.kernel_init,
+                        bias_init=self.bias_init, padding='CIRCULAR')(x)  # Periodic boundary
+            x = nn.celu(x)
+            x = nn.max_pool(x, window_shape=(2, 2),
+                            strides=(1, 1))  # max or avg
+
+        x = jnp.ravel(x)
+        x = nn.Dense(self.volume, kernel_init=self.kernel_init,
+                     use_bias=False)(x)
+        x = nn.celu(x)
+        return x
+
+
+class CV_CNN(nn.Module):
+    volume: int
+    length: int
+    features: Sequence[int]
+
+    @nn.compact
+    def __call__(self, x):
+        x = x.reshape(self.length, self.length, 1)
+        x = CNN(self.volume, self.features)(x)
+        return x
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(
@@ -96,6 +131,10 @@ if __name__ == '__main__':
                         help="number of training set")
     parser.add_argument('-ns', '--n_test', type=int, default=1000,
                         help="number of test set")
+    parser.add_argument('--l2', type=float, default=0.0,
+                        help="l2 regularization")
+    parser.add_argument('--cnn',  action='store_true',
+                        help="Use CNN")
 
     args = parser.parse_args()
 
@@ -127,8 +166,12 @@ if __name__ == '__main__':
             g, g_params = pickle.load(f)
         loaded = True
     if not loaded:
-        g = CV_MLP(V, [args.width*V]*args.layers)
-        g_params = g.init(g_ikey, jnp.zeros(V))
+        if args.cnn:
+            g = CV_CNN(V, int(jnp.sqrt(V)), [args.width]*args.layers)
+            g_params = g.init(g_ikey, jnp.zeros(V))
+        else:
+            g = CV_MLP(V, [args.width]*args.layers)
+            g_params = g.init(g_ikey, jnp.zeros(V))
 
     # define subtraction function
     @jax.jit
@@ -143,26 +186,15 @@ if __name__ == '__main__':
         # All possible sum
         # return j.sum() - jnp.kron(g.apply(p, x), jax.grad(lambda y: model.action(y).real)(x)).sum()
 
-    # regularization, not yet implemented
-    def ridge(p):
-        sum = 0
-        layers = len(p['params']['MLP_0'])-1
-
-        def sum_at_i(i, sum):
-            print(type(str(i)))
-            print('Dense_'+str(i))
-            return sum + (p['params']['MLP_0']['Dense_'+str(i)]['kernel']**2).sum() + (p['params']['MLP_0']['Dense_'+str(i)]['bias']**2).sum()
-
-        sum = jax.lax.fori_loop(0, layers-1, sum_at_i, sum)
-        sum += (p['params']['MLP_0']['Dense_' +
-                str(layers)]['kernel']**2).sum()
-
-        return sum
+    # l2, regularization
+    @jax.jit
+    def l2_loss(x, alpha):
+        return alpha*(x**2).mean()
 
     # define loss function
     @jax.jit
     def Loss(x, p):
-        return (model.observe(x).real - f(x, p) - mu)**2
+        return (model.observe(x).real - f(x, p) - mu)**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"]))
 
     Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
