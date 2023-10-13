@@ -14,6 +14,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from util import *
 # Don't print annoying CPU warning.
 jax.config.update('jax_platform_name', 'cpu')
 jax.config.update("jax_debug_nans", True)
@@ -227,37 +228,13 @@ if __name__ == '__main__':
             lambda *x: jnp.mean(jnp.array(x), axis=0)/w_mean, *grads_w)
         return grad_mean
 
-    def bootstrap(xs, ws=None, N=100, Bs=50):
-        if Bs > len(xs):
-            Bs = len(xs)
-        B = len(xs)//Bs
-        if ws is None:
-            ws = xs*0 + 1
-        # Block
-        x, w = [], []
-        for i in range(Bs):
-            x.append(sum(xs[i*B:i*B+B]*ws[i*B:i*B+B])/sum(ws[i*B:i*B+B]))
-            w.append(sum(ws[i*B:i*B+B]))
-        x = np.array(x)
-        w = np.array(w)
-        # Regular bootstrap
-        y = x * w
-        m = (sum(y) / sum(w))
-        ms = []
-        for _ in range(N):
-            # Using numpy random seed so it might change
-            s = np.random.choice(range(len(x)), len(x))
-            ms.append((sum(y[s]) / sum(w[s])))
-        ms = np.array(ms)
-        return m, np.std(ms.real) + 1j*np.std(ms.imag)
-
     steps = 10000 // args.nstochastic
     grads = [0] * args.nstochastic
     weight = eval(args.weight)
 
     # measurement
     obs = [0] * args.n_test
-    cvs = [0] * args.n_test
+    fs = [0] * args.n_test
 
     with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
         configs = pickle.load(aa)
@@ -265,6 +242,11 @@ if __name__ == '__main__':
     # separate configurations for training and test
     configs_test = configs[:args.n_test]
     configs = configs[-args.n_train:]
+
+    for i in range(args.n_test):
+        obs[i] = model.observe(configs_test[i])
+
+    obs_av = bootstrap(np.array(obs))
 
     # Unbiased estimation for preventing overfitting
     mu = float(np.mean([model.observe(configs[i])
@@ -284,10 +266,8 @@ if __name__ == '__main__':
             g_params = optax.apply_updates(g_params, updates)
 
         for i in range(args.n_test):
-            obs[i] = model.observe(configs_test[i])
-            cvs[i] = model.observe(configs_test[i]) - \
-                f(configs_test[i], g_params)
+            fs[i] = f(configs_test[i], g_params)
 
         print(
-            f"{bootstrap(np.array(obs))} {bootstrap(np.array(cvs))}", flush=True)
+            f"{obs_av} {bootstrap(np.array(obs)-np.array(fs))} {bootstrap(np.array(fs))}", flush=True)
         save()
