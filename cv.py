@@ -2,7 +2,6 @@
 
 
 from models import scalar
-from mc import metropolis, replica
 import pickle
 import sys
 import time
@@ -245,7 +244,8 @@ if __name__ == '__main__':
 
     for i in range(args.n_test):
         obs[i] = model.observe(configs_test[i])
-
+    
+    np.random.seed(0) # same random seed for initial bootstrap
     obs_av = bootstrap(np.array(obs))
 
     # Unbiased estimation for preventing overfitting
