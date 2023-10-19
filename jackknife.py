@@ -5,7 +5,7 @@ import sys
 from cmath import phase
 
 
-def jackknife(xs, ws=None, Bs=40000):  # Bs: Block size
+def jackknife(xs, ws=None, Bs=50):  # Bs: Block size
     B = len(xs)//Bs  # number of blocks
     if ws is None:  # for reweighting
         ws = xs*0 + 1
@@ -34,7 +34,7 @@ def jackknife(xs, ws=None, Bs=40000):  # Bs: Block size
             np.mean(np.delete(w, i)) for i in range(B)]
     vals = np.array(vals)
 
-    return m, np.std(vals.real) + 1j*np.std(vals.imag)
+    return m, (np.std(vals.real) + 1j*np.std(vals.imag))*(np.sqrt(len(vals))-1)
 
 
 lines = [l for l in sys.stdin.readlines() if l[0] != '#']

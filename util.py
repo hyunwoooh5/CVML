@@ -2,7 +2,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-def jackknife(xs, ws=None, Bs=10):  # Bs: Block size
+
+def jackknife(xs, ws=None, Bs=50):  # Bs: Block size
     B = len(xs)//Bs  # number of blocks
     if ws is None:  # for reweighting
         ws = xs*0 + 1
@@ -30,8 +31,7 @@ def jackknife(xs, ws=None, Bs=10):  # Bs: Block size
     vals = [np.mean(np.delete(x, i, axis=0)*np.delete(w, i, axis=0)) /
             np.mean(np.delete(w, i)) for i in range(B)]
     vals = np.array(vals)
-
-    return m, np.std(vals.real) + 1j*np.std(vals.imag)
+    return m, (np.std(vals.real) + 1j*np.std(vals.imag))*np.sqrt(len(vals)-1)
 
 
 def bootstrap(xs, ws=None, N=100, Bs=50):
