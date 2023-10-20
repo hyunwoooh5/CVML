@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-
 from models import scalar
 import pickle
 import sys
@@ -245,8 +244,7 @@ if __name__ == '__main__':
     for i in range(args.n_test):
         obs[i] = model.observe(configs_test[i])
     
-    np.random.seed(0) # same random seed for initial bootstrap
-    obs_av = bootstrap(np.array(obs))
+    obs_av = jackknife(np.array(obs))
 
     # Unbiased estimation for preventing overfitting
     mu = float(np.mean([model.observe(configs[i])
@@ -269,5 +267,5 @@ if __name__ == '__main__':
             fs[i] = f(configs_test[i], g_params)
 
         print(
-            f"{obs_av} {bootstrap(np.array(obs)-np.array(fs))} {bootstrap(np.array(fs))}", flush=True)
+            f"{obs_av} {jackknife(np.array(obs)-np.array(fs))} {jackknife(np.array(fs))}", flush=True)
         save()
