@@ -7,15 +7,7 @@ def jackknife(xs, ws=None, Bs=50):  # Bs: Block size
     B = len(xs)//Bs  # number of blocks
     if ws is None:  # for reweighting
         ws = xs*0 + 1
-    # Block
-    '''
-    x, w = [], []
-    for i in range(Bs):
-        x.append(sum(xs[i*B:i*B+B]*ws[i*B:i*B+B])/sum(ws[i*B:i*B+B]))
-        w.append(sum(ws[i*B:i*B+B]))
-    x = np.array(x)
-    w = np.array(w)
-    '''
+
     x = np.array(xs[:B*Bs])
     w = np.array(ws[:B*Bs])
 
@@ -32,6 +24,28 @@ def jackknife(xs, ws=None, Bs=50):  # Bs: Block size
             np.mean(np.delete(w, i)) for i in range(B)]
     vals = np.array(vals)
     return m, (np.std(vals.real) + 1j*np.std(vals.imag))*np.sqrt(len(vals)-1)
+
+
+def bin(xs, ws=None, Bs=50):  # Bs: Block size
+    B = len(xs)//Bs  # number of blocks
+    if ws is None:  # for reweighting
+        ws = xs*0 + 1
+
+    x = np.array(xs[:B*Bs])
+    w = np.array(ws[:B*Bs])
+
+    m = sum(x*w)/sum(w)
+
+    # partition
+    block = [[B, Bs], list(x.shape[1:])]
+    block_f = [i for sublist in block for i in sublist]
+    x = x.reshape(block_f)
+    w = w.reshape(block_f)
+
+    # jackknife
+    vals = [np.mean(x[i]*w[i])/np.mean(w[i]) for i in range(B)]
+    vals = np.array(vals)
+    return m, (np.std(vals.real) + 1j*np.std(vals.imag))/np.sqrt(len(vals)-1)
 
 
 def bootstrap(xs, ws=None, N=100, Bs=50):

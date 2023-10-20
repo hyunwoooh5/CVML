@@ -9,15 +9,7 @@ def jackknife(xs, ws=None, Bs=50):  # Bs: Block size
     B = len(xs)//Bs  # number of blocks
     if ws is None:  # for reweighting
         ws = xs*0 + 1
-    # Block
-    '''
-    x, w = [], []
-    for i in range(Bs):
-        x.append(sum(xs[i*B:i*B+B]*ws[i*B:i*B+B])/sum(ws[i*B:i*B+B]))
-        w.append(sum(ws[i*B:i*B+B]))
-    x = np.array(x)
-    w = np.array(w)
-    '''
+    
     x = np.array(xs[:B*Bs])
     w = np.array(ws[:B*Bs])
 
@@ -45,7 +37,6 @@ dat = dat[:, 1:]  # Others
 
 # Reweighting (equivalent to sign problem)
 rew, rew_err = jackknife(boltz)
-print(rew, rew_err)
 print(f'# Reweighting: {rew} {rew_err} {abs(rew)} {phase(rew)}')
 
 # Observables
