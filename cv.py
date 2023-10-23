@@ -21,6 +21,7 @@ jax.config.update("jax_debug_infs", True)
 
 class MLP(nn.Module):
     volume: int
+    length: int
     features: Sequence[int]
     kernel_init: Callable = nn.initializers.variance_scaling(
         2, "fan_in", "truncated_normal")  # for ReLU / CELU
@@ -32,18 +33,20 @@ class MLP(nn.Module):
             x = nn.Dense(feat, kernel_init=self.kernel_init,
                          bias_init=self.bias_init)(x)
             x = nn.celu(x)
-        x = nn.Dense(self.volume, use_bias=False,
+        x = nn.Dense(self.length, use_bias=False,
                      kernel_init=self.kernel_init)(x)
         return x
 
 
 class CV_MLP(nn.Module):
     volume: int
+    length: int
     features: Sequence[int]
 
     @nn.compact
     def __call__(self, x):
-        x = MLP(self.volume, self.features)(x)
+        x = MLP(self.volume, self.length, self.features)(x)
+        x = jnp.ravel(jnp.array([x]*self.length).T)
         return x
 
 
@@ -169,7 +172,7 @@ if __name__ == '__main__':
             g = CV_CNN(V, int(jnp.sqrt(V)), [args.width]*args.layers)
             g_params = g.init(g_ikey, jnp.zeros(V))
         else:
-            g = CV_MLP(V, [args.width]*args.layers)
+            g = CV_MLP(V, int(jnp.sqrt(V)), [args.width]*args.layers)
             g_params = g.init(g_ikey, jnp.zeros(V))
 
     # define subtraction function
@@ -243,7 +246,7 @@ if __name__ == '__main__':
 
     for i in range(args.n_test):
         obs[i] = model.observe(configs_test[i])
-    
+
     obs_av = jackknife(np.array(obs))
 
     # Unbiased estimation for preventing overfitting
