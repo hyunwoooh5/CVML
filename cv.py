@@ -12,6 +12,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import optuna
 from util import *
 # Don't print annoying CPU warning.
 jax.config.update('jax_platform_name', 'cpu')
@@ -135,6 +136,8 @@ if __name__ == '__main__':
                         help="number of test set")
     parser.add_argument('--l2', type=float, default=0.0,
                         help="l2 regularization")
+    parser.add_argument('-opt', '--optuna', action='store_true',
+                        help="Use optuna")
     parser.add_argument('--cnn',  action='store_true',
                         help="Use CNN")
 
@@ -229,7 +232,6 @@ if __name__ == '__main__':
             lambda *x: jnp.mean(jnp.array(x), axis=0)/w_mean, *grads_w)
         return grad_mean
 
-    steps = 10000 // args.nstochastic
     grads = [0] * args.nstochastic
     weight = eval(args.weight)
 
@@ -253,22 +255,81 @@ if __name__ == '__main__':
     mu = float(np.mean([model.observe(configs[i])
                         for i in range(args.n_train)]))
 
-    # Training
-    while True:
-        g_ikey, subkey = jax.random.split(g_ikey)
-        rands = jax.random.choice(g_ikey, len(configs), (10000,))
-        for s in range(steps):
-            for l in range(args.nstochastic):
-                grads[l] = Loss_grad(
-                    configs[rands[args.nstochastic*s+l]], g_params)
+    def objective(trial):
+        layers = trial.suggest_int('layers', 1, 5)
+        width = trial.suggest_int('width', 2, V//4, step=2)
 
-            grad = Grad_Mean(grads, weight)
-            updates, opt_state = opt_update_jit(grad, opt_state)
-            g_params = optax.apply_updates(g_params, updates)
+        l2 = trial.suggest_float('l2', 0, 0.2)
+        lr = trial.suggest_float('lr', 1e-4, 1e-2)
+        end = trial.suggest_float('end', 1e-8, 1e-6)
+        b1 = trial.suggest_float('b1', 0.9, 1)
+        b2 = trial.suggest_float('b2', 0.9, 1)
+        care = trial.suggest_int('care', 100, 10000, step=100)
+        N = trial.suggest_int('N', 1, 100)
+
+        g_ikey = jax.random.PRNGKey(0)
+
+        g = CV_MLP(V, int(jnp.sqrt(V)), [width]*layers)
+        g_params = g.init(g_ikey, jnp.zeros(V))
+
+        @jax.jit
+        def f(x, p):
+            j = jax.jacfwd(lambda y: g.apply(p, y))(x)
+            return j.diagonal().sum() - g.apply(p, x)@jax.grad(lambda y: model.action(y).real)(x)
+
+        @jax.jit
+        def Loss(x, p):
+            return (model.observe(x).real - f(x, p) - mu)**2 + sum(l2_loss(w, l2) for w in jax.tree_util.tree_leaves(p["params"]))
+
+        Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
+
+        sched = optax.exponential_decay(
+            init_value=lr,
+            transition_steps=care,
+            decay_rate=0.99,
+            end_value=end)
+
+        opt = getattr(optax, 'adam')(sched, b1, b2)
+        opt_state = opt.init(g_params)
+        opt_update_jit = jax.jit(opt.update)
+
+        grads = [0] * N
+
+        for i in range(1000):  # 1000 epochs
+            for s in range(args.n_train//N):
+                for l in range(N):
+                    grads[l] = Loss_grad(
+                        configs[N*s+l], g_params)
+                grad = Grad_Mean(grads, weight)
+                updates, opt_state = opt_update_jit(grad, opt_state)
+                g_params = optax.apply_updates(g_params, updates)
 
         for i in range(args.n_test):
             fs[i] = f(configs_test[i], g_params)
 
-        print(
-            f"{obs_av} {jackknife(np.array(obs)-np.array(fs))} {jackknife(np.array(fs))}", flush=True)
-        save()
+        ob, err = jackknife(np.array(obs)-np.array(fs))
+
+        return err.real
+
+    if args.optuna:
+        study = optuna.create_study(direction='minimize')
+        study.optimize(objective, n_trials=100)
+    else:
+        # Training
+        while True:
+            g_ikey, subkey = jax.random.split(g_ikey)
+            for s in range(args.n_train//args.nstochastic):  # one epoch
+                for l in range(args.nstochastic):
+                    grads[l] = Loss_grad(
+                        configs[args.nstochastic*s+l], g_params)
+
+                grad = Grad_Mean(grads, weight)
+                updates, opt_state = opt_update_jit(grad, opt_state)
+                g_params = optax.apply_updates(g_params, updates)
+
+            for i in range(args.n_test):
+                fs[i] = f(configs_test[i], g_params)
+
+            print(
+                f"{obs_av} {jackknife(np.array(obs)-np.array(fs))} {jackknife(np.array(fs))}", flush=True)
+            save()
