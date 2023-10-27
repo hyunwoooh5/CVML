@@ -186,7 +186,7 @@ if __name__ == '__main__':
     def g(x, p):
         def g_(x, p, ind):
             return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=1).reshape(V))
-        return jnp.ravel(jax.lax.vmap(lambda ind: g_(x, p, ind))(index).T)
+        return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
     # define subtraction function
     @jax.jit
