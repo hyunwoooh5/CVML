@@ -180,9 +180,13 @@ if __name__ == '__main__':
             g_params = g1.init(g_ikey, jnp.zeros(V))
 
     # g(Tx) = Tg(x)
+    index = jnp.array([-i for i in range(L)])
+
     @jax.jit
     def g(x, p):
-        return jnp.ravel(jnp.array([g1.apply(p, jnp.roll(x.reshape([L, L]), -i, axis=1).reshape(V)) for i in range(L)]).T)
+        def g_(x, p, ind):
+            return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=1).reshape(V))
+        return jnp.ravel(jax.lax.map(lambda ind: g_(x, p, ind), index).T)
 
     # define subtraction function
     @jax.jit
