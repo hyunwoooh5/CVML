@@ -47,7 +47,7 @@ class CV_MLP(nn.Module):
     @nn.compact
     def __call__(self, x):
         x = MLP(self.volume, self.length, self.features)(x)
-        x = jnp.ravel(jnp.array([x]*self.length).T)
+        # x = jnp.ravel(jnp.array([x]*self.length).T) # Tg(x) = g(x)
         return x
 
 
@@ -154,6 +154,7 @@ if __name__ == '__main__':
     with open(args.model, 'rb') as f:
         model = eval(f.read())
     V = model.dof
+    L = model.L
 
     g_ikey, chain_key = jax.random.split(key, 2)
 
@@ -175,15 +176,20 @@ if __name__ == '__main__':
             g = CV_CNN(V, int(jnp.sqrt(V)), [args.width]*args.layers)
             g_params = g.init(g_ikey, jnp.zeros(V))
         else:
-            g = CV_MLP(V, int(jnp.sqrt(V)), [args.width]*args.layers)
-            g_params = g.init(g_ikey, jnp.zeros(V))
+            g1 = CV_MLP(V, L, [args.width]*args.layers)
+            g_params = g1.init(g_ikey, jnp.zeros(V))
+
+    # g(Tx) = Tg(x)
+    @jax.jit
+    def g(x, p):
+        return jnp.ravel(jnp.array([g1.apply(p, jnp.roll(x.reshape([L, L]), -i, axis=1).reshape(V)) for i in range(L)]).T)
 
     # define subtraction function
     @jax.jit
     def f(x, p):
         # diagonal sum (Stein's identity)
-        j = jax.jacfwd(lambda y: g.apply(p, y))(x)
-        return j.diagonal().sum() - g.apply(p, x)@jax.grad(lambda y: model.action(y).real)(x)
+        j = jax.jacfwd(lambda y: g(y, p))(x)
+        return j.diagonal().sum() - g(x, p)@jax.grad(lambda y: model.action(y).real)(x)
 
         # g: R^V -> R
         # return jnp.sum(jax.grad(lambda x, p: g.apply(p, x)[0], argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x))
@@ -217,7 +223,7 @@ if __name__ == '__main__':
 
     def save():
         with open(args.cv, 'wb') as aa:
-            pickle.dump((g, g_params), aa)
+            pickle.dump((g1, g_params), aa)
 
     def Grad_Mean(grads, weight):
         """
