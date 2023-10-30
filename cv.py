@@ -21,6 +21,16 @@ jax.config.update("jax_debug_nans", True)
 jax.config.update("jax_debug_infs", True)
 
 
+@jax.jit
+def arcsinh(x: any) -> any:
+    return jnp.arcsinh(x)
+
+
+@jax.jit
+def sinh(x: any) -> any:
+    return jnp.sinh(x)
+
+
 class MLP(nn.Module):
     volume: int
     length: int
@@ -32,10 +42,11 @@ class MLP(nn.Module):
     @nn.compact
     def __call__(self, x):
         for feat in self.features:
-            x = nn.Dense(feat, kernel_init=self.kernel_init,
+            x = nn.Dense(feat, use_bias=False,
+                         kernel_init=self.kernel_init,
                          bias_init=self.bias_init)(x)
-            x = nn.celu(x)
-        x = nn.Dense(self.length, use_bias=False,
+            x = arcsinh(x)
+        x = nn.Dense(1, use_bias=False,
                      kernel_init=self.kernel_init)(x)
         return x
 
@@ -181,12 +192,12 @@ if __name__ == '__main__':
             g_params = g1.init(g_ikey, jnp.zeros(V))
 
     # g(Tx) = Tg(x)
-    index = jnp.array([-i for i in range(L)])
+    index = jnp.array([(-i, -j) for i in range(L) for j in range(L)])
 
     @jax.jit
     def g(x, p):
         def g_(x, p, ind):
-            return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=1).reshape(V))
+            return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V))
         return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
     # define subtraction function
