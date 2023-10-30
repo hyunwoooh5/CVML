@@ -58,7 +58,7 @@ class CV_MLP(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        x = MLP(self.volume, self.length, self.features)(x)
+        x = MLP(self.volume, 1, self.features)(x)
         # x = jnp.ravel(jnp.array([x]*self.length).T) # Tg(x) = g(x)
         return x
 
