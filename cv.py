@@ -11,6 +11,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
+import sympy
 import optax
 import optuna
 from util import *
@@ -270,22 +271,28 @@ if __name__ == '__main__':
         width = trial.suggest_int('width', 2, V//4, step=2)
 
         l2 = trial.suggest_float('l2', 0, 0.2)
-        lr = trial.suggest_float('lr', 1e-4, 1e-2)
+        lr = trial.suggest_float('lr', 1e-4, 1e-3)
         end = trial.suggest_float('end', 1e-8, 1e-6)
         b1 = trial.suggest_float('b1', 0.9, 1)
         b2 = trial.suggest_float('b2', 0.9, 1)
         care = trial.suggest_int('care', 100, 10000, step=100)
-        N = trial.suggest_int('N', 1, 100)
+        N = trial.suggest_categorical('N', sympy.divisors(100))
 
         g_ikey = jax.random.PRNGKey(0)
 
-        g = CV_MLP(V, int(jnp.sqrt(V)), [width]*layers)
-        g_params = g.init(g_ikey, jnp.zeros(V))
+        g1 = CV_MLP(V, L, [width]*layers)
+        g_params = g1.init(g_ikey, jnp.zeros(V))
+
+        @jax.jit
+        def g(x, p):
+            def g_(x, p, ind):
+                return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V))
+            return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
         @jax.jit
         def f(x, p):
-            j = jax.jacfwd(lambda y: g.apply(p, y))(x)
-            return j.diagonal().sum() - g.apply(p, x)@jax.grad(lambda y: model.action(y).real)(x)
+            j = jax.jacfwd(lambda y: g(y, p))(x)
+            return j.diagonal().sum() - g(x, p)@jax.grad(lambda y: model.action(y).real)(x)
 
         @jax.jit
         def Loss(x, p):
@@ -305,7 +312,7 @@ if __name__ == '__main__':
 
         grads = [0] * N
 
-        for i in range(1000):  # 1000 epochs
+        for step in range(500):  # 500 epochs
             for s in range(args.n_train//N):
                 for l in range(N):
                     grads[l] = Loss_grad(
@@ -313,6 +320,17 @@ if __name__ == '__main__':
                 grad = Grad_Mean(grads, weight)
                 updates, opt_state = opt_update_jit(grad, opt_state)
                 g_params = optax.apply_updates(g_params, updates)
+
+            for i in range(args.n_test):
+                fs[i] = f(configs_test[i], g_params)
+
+            ob, err = jackknife(np.array(obs)-np.array(fs))
+            intermediate_value = err.real
+
+            trial.report(intermediate_value, step)
+
+            if trial.should_prune():
+                raise optuna.TrialPruned()
 
         for i in range(args.n_test):
             fs[i] = f(configs_test[i], g_params)
@@ -322,8 +340,12 @@ if __name__ == '__main__':
         return err.real
 
     if args.optuna:
-        study = optuna.create_study(direction='minimize')
+        study = optuna.create_study(
+            study_name=args.cv, direction='minimize', sampler=optuna.samplers.TPESampler(seed=42), pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=200, interval_steps=1, n_min_trials=1))  # single-objective optimization
         study.optimize(objective, n_trials=100)
+        print("Best Score:", study.best_value)
+        print("Best trial:", study.best_trial.params)
+        print("Parameter importance: ", optuna.importance.get_param_importances)
     else:
         # Training
         while True:
