@@ -58,9 +58,9 @@ class CV_MLP(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        x = MLP(self.volume, 1, self.features)(x)
-        # x = jnp.ravel(jnp.array([x]*self.length).T) # Tg(x) = g(x)
-        return x
+        x = MLP(self.volume, self.length, self.features)(x)
+        y = self.param('bias', nn.initializers.zeros, (1,))
+        return x, y
 
 
 class CNN(nn.Module):
@@ -197,7 +197,7 @@ if __name__ == '__main__':
     @jax.jit
     def g(x, p):
         def g_(x, p, ind):
-            return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V))
+            return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V))[0]
         return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
     # define subtraction function
@@ -221,7 +221,9 @@ if __name__ == '__main__':
     # define loss function
     @jax.jit
     def Loss(x, p):
-        return (model.observe(x).real - f(x, p) - mu)**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"]))
+        _, y = g1.apply(p, x)
+        # shift is not regularized
+        return (model.observe(x).real - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - w * y[0]**2
 
     Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -272,10 +274,6 @@ if __name__ == '__main__':
         obs[i] = model.observe(configs_test[i])
 
     obs_av = jackknife(np.array(obs))
-
-    # Unbiased estimation for preventing overfitting
-    mu = float(np.mean([model.observe(configs[i])
-                        for i in range(args.n_train)]))
 
     def objective(trial):
         layers = trial.suggest_int('layers', 1, 5)
