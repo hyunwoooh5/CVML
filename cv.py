@@ -15,8 +15,7 @@ import sympy
 import optax
 import optuna
 from util import *
-# Don't print annoying CPU warning.
-jax.config.update('jax_platform_name', 'cpu')
+
 jax.config.update("jax_debug_nans", True)
 jax.config.update("jax_debug_infs", True)
 
@@ -213,17 +212,21 @@ if __name__ == '__main__':
         # All possible sum
         # return j.sum() - jnp.kron(g.apply(p, x), jax.grad(lambda y: model.action(y).real)(x)).sum()
 
-    # l2, regularization
+    # regularizations
     @jax.jit
     def l2_loss(x, alpha):
         return alpha*(x**2).mean()
+
+    @jax.jit
+    def l1_loss(x, alpha):
+        return alpha*(abs(x)).mean()
 
     # define loss function
     @jax.jit
     def Loss(x, p):
         _, y = g1.apply(p, x)
         # shift is not regularized
-        return (model.observe(x).real - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - w * y[0]**2
+        return (model.observe(x).real - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
     Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -295,7 +298,7 @@ if __name__ == '__main__':
         @jax.jit
         def g(x, p):
             def g_(x, p, ind):
-                return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V))
+                return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V))[0]
             return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
         @jax.jit
@@ -305,7 +308,9 @@ if __name__ == '__main__':
 
         @jax.jit
         def Loss(x, p):
-            return (model.observe(x).real - f(x, p) - mu)**2 + sum(l2_loss(w, l2) for w in jax.tree_util.tree_leaves(p["params"]))
+            _, y = g1.apply(p, x)
+            # shift is not regularized
+            return (model.observe(x).real - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
         Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -350,11 +355,13 @@ if __name__ == '__main__':
 
     if args.optuna:
         study = optuna.create_study(
-            study_name=args.cv, direction='minimize', sampler=optuna.samplers.TPESampler(seed=42), pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=200, interval_steps=1, n_min_trials=1))  # single-objective optimization
-        study.optimize(objective, n_trials=100)
+            study_name=args.cv, direction='minimize', sampler=optuna.samplers.TPESampler(seed=42), pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=200, interval_steps=1, n_min_trials=5))  # single-objective optimization
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        study.optimize(objective, n_trials=10)
         print("Best Score:", study.best_value)
         print("Best trial:", study.best_trial.params)
-        print("Parameter importance: ", optuna.importance.get_param_importances)
+        print("Parameter importance: ",
+              optuna.importance.get_param_importances(study))
     else:
         # Training
         while True:
