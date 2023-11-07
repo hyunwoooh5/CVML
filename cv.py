@@ -199,12 +199,21 @@ if __name__ == '__main__':
             return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V))[0]
         return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
+    g1_grad = jax.jit(jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0))
+    dS = jax.jit(jax.grad(lambda y: model.action(y).real))
+    jaco = jax.jit(jax.jacfwd(g, argnums=0))
+
     # define subtraction function
     @jax.jit
     def f(x, p):
         # diagonal sum (Stein's identity)
-        j = jax.jacfwd(lambda y: g(y, p))(x)
-        return j.diagonal().sum() - g(x, p)@jax.grad(lambda y: model.action(y).real)(x)
+        def diag_(ind):
+            return g1_grad(jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V), p)
+        j = jax.vmap(diag_)(index)[:, 0].sum()
+        return j - g(x, p)@dS(x)
+
+        # j = jaco(x, p)
+        # return j.diagonal().sum() - g(x, p)@dS(x)
 
         # g: R^V -> R
         # return jnp.sum(jax.grad(lambda x, p: g.apply(p, x)[0], argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x))
