@@ -1,6 +1,6 @@
 #include <iostream>
 #include <random>
-#include </home/oh/Downloads/eigen-3.3.9/Eigen/Dense> // #include </Users/hyunwoooh/Downloads/eigen-3.3.9/Eigen/Dense>
+#include <Eigen/Dense> // #include </Users/hyunwoooh/Downloads/eigen-3.3.9/Eigen/Dense>
 #include <fstream>
 #include <ctime> // Timer
 #include <stdio.h>
@@ -26,21 +26,21 @@ struct Index
 
 struct params
 {
-    int L, dof;
+    int nt, nx, dof;
     double m2, lamda, delta;
     int n_decor, n_thermal, n_conf;
 };
 
-inline int Idx(int x0, int x1, int L)
+inline int Idx(int x0, int x1, int nt, int nx)
 {
-    return (x1 % L) + L * (x0 % L);
+    return (x1 % nx) + nx * (x0 % nt);
 }
 
-Index Idx_inv(int n, int L)
+Index Idx_inv(int n, int nx)
 {
     struct Index idx;
-    idx.x0 = n / L;
-    idx.x1 = n % L;
+    idx.x0 = n / nx;
+    idx.x1 = n % nx;
     return idx;
 }
 
@@ -67,15 +67,15 @@ double Action(Eigen::ArrayXd &A)
 double Action_Local(Eigen::ArrayXd &A, int n, params &p)
 {
     struct Index idx;
-    idx = Idx_inv(n, p.L);
+    idx = Idx_inv(n, p.nx);
 
     int idx_mt, idx_mx, idx_pt, idx_px;
     double pot, kint, kinx;
 
-    idx_mt = Idx((idx.x0 - 1 + p.L) % p.L, idx.x1, p.L);
-    idx_mx = Idx(idx.x0, (idx.x1 - 1 + p.L) % p.L, p.L);
-    idx_pt = Idx((idx.x0 + 1) % p.L, idx.x1, p.L);
-    idx_px = Idx(idx.x0, (idx.x1 + 1) % p.L, p.L);
+    idx_mt = Idx((idx.x0 - 1 + p.nt) % p.nt, idx.x1, p.nt, p.nx);
+    idx_mx = Idx(idx.x0, (idx.x1 - 1 + p.nx) % p.nx, p.nt, p.nx);
+    idx_pt = Idx((idx.x0 + 1) % p.nt, idx.x1, p.nt, p.nx);
+    idx_px = Idx(idx.x0, (idx.x1 + 1) % p.nx, p.nt, p.nx);
 
     pot = p.m2 / 2.0 * pow(A[n], 2) + p.lamda / 24. * pow(A[n], 4);
     kint = (pow(A[idx_pt] - A[n], 2) + pow(A[idx_mt] - A[n], 2)) / 2.0;
@@ -165,13 +165,14 @@ int main(int argc, char **argv)
     struct params p;
     p.delta = 1;
 
-    p.L = std::stoi(argv[1]);
-    p.dof = pow(p.L, 2);
-    p.m2 = std::stod(argv[2]);
-    p.lamda = std::stod(argv[3]);
-    p.n_decor = std::stoi(argv[4]);
+    p.nt = std::stoi(argv[1]);
+    p.nx = std::stoi(argv[2]);
+    p.dof = p.nt * p.nx;
+    p.m2 = std::stod(argv[3]);
+    p.lamda = std::stod(argv[4]);
+    p.n_decor = std::stoi(argv[5]);
     p.n_thermal = 10000;
-    p.n_conf = std::stoi(argv[5]);
+    p.n_conf = std::stoi(argv[6]);
 
     Eigen::ArrayXd configuration = Eigen::ArrayXd::Zero(p.dof); // Cold start
 
