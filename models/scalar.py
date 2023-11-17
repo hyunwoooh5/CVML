@@ -47,7 +47,7 @@ class Model:
         self.dt_site = self.dt * \
             jnp.tile(self.contour_site.reshape(
                 (self.NT,)+(1,)*self.D), (1,)+self.geom)
-        self.L = int((self.dof//self.NT)**1/(self.D))
+        self.L = self.geom[0]
 
         # Backwards compatibility
         self.periodic_contour = False
@@ -67,7 +67,7 @@ class Model:
         phi = phi.reshape(self.shape)
 
         t = n // self.nbeta
-        x = (n - t * self.nbeta) // self.L
+        x = (n - t * self.nbeta) % self.L
 
         # Rolling is slow
         idx_mt = (t - 1) % self.nbeta, x

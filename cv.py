@@ -165,6 +165,7 @@ if __name__ == '__main__':
     with open(args.model, 'rb') as f:
         model = eval(f.read())
     V = model.dof
+    nt = model.NT
     L = model.L
 
     g_ikey, chain_key = jax.random.split(key, 2)
@@ -191,12 +192,12 @@ if __name__ == '__main__':
             g_params = g1.init(g_ikey, jnp.zeros(V))
 
     # g(Tx) = Tg(x)
-    index = jnp.array([(-i, -j) for i in range(L) for j in range(L)])
+    index = jnp.array([(-i, -j) for i in range(nt) for j in range(L)])
 
     @jax.jit
     def g(x, p):
         def g_(x, p, ind):
-            return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V))[0]
+            return g1.apply(p, jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V))[0]
         return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
     g1_grad = jax.jit(jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0))
@@ -208,7 +209,7 @@ if __name__ == '__main__':
     def f(x, p):
         # diagonal sum (Stein's identity)
         def diag_(ind):
-            return g1_grad(jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V), p)
+            return g1_grad(jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V), p)
         j = jax.vmap(diag_)(index)[:, 0].sum()
         return j - g(x, p)@dS(x)
 
@@ -307,7 +308,7 @@ if __name__ == '__main__':
         @jax.jit
         def g(x, p):
             def g_(x, p, ind):
-                return g1.apply(p, jnp.roll(x.reshape([L, L]), ind, axis=(0, 1)).reshape(V))[0]
+                return g1.apply(p, jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V))[0]
             return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
         @jax.jit
@@ -319,7 +320,7 @@ if __name__ == '__main__':
         def Loss(x, p):
             _, y = g1.apply(p, x)
             # shift is not regularized
-            return (model.observe(x).real - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+            return (model.observe(x).real - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=l2) for w in jax.tree_util.tree_leaves(p["params"])) - l2 * y[0]**2
 
         Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
