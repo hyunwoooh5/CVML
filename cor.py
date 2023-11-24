@@ -8,6 +8,9 @@ import jax
 import argparse
 from cv import *
 
+# Don't print annoying CPU warning.
+jax.config.update('jax_platform_name', 'cpu')
+
 parser = argparse.ArgumentParser(
     description="Train g",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -72,7 +75,7 @@ print(f"jackknife:\n{jack}")
 print("covariance:")
 for i in range(nt):
     for j in range(nt):
-        cov[i*nt+j] = (obs[:,i]-avs[i])@(obs[:,j]-avs[j])/(args.n_test+args.n_train-1)
+        cov[i*nt+j] = (obs[:,i]-avs[i])@(obs[:,j]-avs[j])/(args.n_test+args.n_train-1)/(args.n_test+args.n_train)
 
 for i in range(nt):
     print(f"{jnp.array(cov).reshape([nt,nt])[i]}")
@@ -89,7 +92,7 @@ print(f"jackknife:\n{jack_full}")
 print(f"covariance:")
 for i in range(nt):
     for j in range(nt):
-        cov_full[i*nt+j] = (obs_full[:,i]-avs_full[i])@(obs_full[:,j]-avs_full[j])/(len(obs_full)-1)
+        cov_full[i*nt+j] = (obs_full[:,i]-avs_full[i])@(obs_full[:,j]-avs_full[j])/(len(obs_full)-1)/len(obs_full)
 
 for i in range(nt):
     print(f"{jnp.array(cov_full).reshape([nt,nt])[i]}")
@@ -110,7 +113,7 @@ print(f"jackknife:\n{jack_cv}")
 
 for i in range(nt):
     for j in range(nt):
-        cov_cv[i*nt+j] = (obs_cv[:args.n_test,i]-avs_cv[i])@(obs_cv[:args.n_test,j]-avs_cv[j])/(args.n_test-1)
+        cov_cv[i*nt+j] = (obs_cv[:args.n_test,i]-avs_cv[i])@(obs_cv[:args.n_test,j]-avs_cv[j])/(args.n_test-1)/args.n_test
 print(f"covariance:")
 for i in range(nt):
     print(f"{jnp.array(cov_cv).reshape([nt,nt])[i]}")
@@ -118,7 +121,7 @@ for i in range(nt):
 print("\ncv all")
 jack_cv_all = [0]*nt
 cov_cv_all = [0]* (nt**2)
-obs_cv_all = obs[:args.n_test] - jnp.concatenate([cv]*nt).reshape([args.n_test, nt])
+obs_cv_all = obs[:args.n_test] - jnp.concatenate([cv]*nt).reshape([nt, args.n_test]).T
 avs_cv_all = jax.vmap(jnp.mean)(obs_cv_all.T)
 
 for i in range(nt):
@@ -127,7 +130,7 @@ print(f"jackknife:\n{jack_cv_all}")
 
 for i in range(nt):
     for j in range(nt):
-        cov_cv_all[i*nt+j] = (obs_cv_all[:,i]-avs_cv_all[i])@(obs_cv_all[:,j]-avs_cv_all[j])/(args.n_test-1)
+        cov_cv_all[i*nt+j] = (obs_cv_all[:,i]-avs_cv_all[i])@(obs_cv_all[:,j]-avs_cv_all[j])/(args.n_test-1)/args.n_test
 print(f"covariance:")
 for i in range(nt):
     print(f"{jnp.array(cov_cv_all).reshape([nt,nt])[i]}")
