@@ -273,19 +273,14 @@ if __name__ == '__main__':
     weight = eval(args.weight)
 
     # measurement
-    obs = [0] * args.n_test
-    fs = [0] * args.n_test
-
     with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
         configs = pickle.load(aa)
 
     # separate configurations for training and test
-    configs_test = configs[:args.n_test]
+    configs_test = jnp.concatenate(configs[:args.n_test]).reshape([args.n_test, V])
     configs = configs[-args.n_train:]
 
-    for i in range(args.n_test):
-        obs[i] = model.observe(configs_test[i])
-
+    obs = jax.vmap(model.observe)(configs_test)
     obs_av = jackknife(np.array(obs))
 
     def objective(trial):
@@ -345,8 +340,7 @@ if __name__ == '__main__':
                 updates, opt_state = opt_update_jit(grad, opt_state)
                 g_params = optax.apply_updates(g_params, updates)
 
-            for i in range(args.n_test):
-                fs[i] = f(configs_test[i], g_params)
+            fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
 
             ob, err = jackknife(np.array(obs)-np.array(fs))
             intermediate_value = err.real
@@ -356,10 +350,9 @@ if __name__ == '__main__':
             if trial.should_prune():
                 raise optuna.TrialPruned()
 
-        for i in range(args.n_test):
-            fs[i] = f(configs_test[i], g_params)
+        fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
 
-        ob, err = jackknife(np.array(obs)-np.array(fs))
+        ob, err = jackknife(np.array(obs-fs))
 
         return err.real
 
@@ -385,9 +378,8 @@ if __name__ == '__main__':
                 updates, opt_state = opt_update_jit(grad, opt_state)
                 g_params = optax.apply_updates(g_params, updates)
 
-            for i in range(args.n_test):
-                fs[i] = f(configs_test[i], g_params)
+            fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
 
             print(
-                f"{obs_av} {jackknife(np.array(obs)-np.array(fs))} {jackknife(np.array(fs))}", flush=True)
+                f"{obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))}", flush=True)
             save()
