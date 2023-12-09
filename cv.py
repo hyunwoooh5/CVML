@@ -165,8 +165,8 @@ if __name__ == '__main__':
     with open(args.model, 'rb') as f:
         model = eval(f.read())
     V = model.dof
-    nt = model.NT
-    L = model.L
+    nt = model.shape[0]
+    L = model.shape[1]
 
     g_ikey, chain_key = jax.random.split(key, 2)
 

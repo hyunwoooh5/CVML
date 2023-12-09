@@ -50,7 +50,7 @@ class Model:
         self.L = self.geom[0]
 
         # Backwards compatibility
-        self.periodic_contour = False
+        self.periodic = False
 
     def action(self, phi):
         m2 = self.m2
