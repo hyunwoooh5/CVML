@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from models import scalar
+from models import scalar, gauge
 import pickle
 import sys
 import time
@@ -58,6 +58,20 @@ class CV_MLP(nn.Module):
     @nn.compact
     def __call__(self, x):
         x = MLP(self.volume, self.length, self.features)(x)
+        y = self.param('bias', nn.initializers.zeros, (1,))
+        return x, y
+
+
+class CV_MLP_Periodic(nn.Module):
+    volume: int
+    length: int
+    features: Sequence[int]
+
+    @nn.compact
+    def __call__(self, x):
+        input = jnp.sin(x)
+
+        x = MLP(self.volume, self.length, self.features)(input)
         y = self.param('bias', nn.initializers.zeros, (1,))
         return x, y
 
@@ -187,9 +201,14 @@ if __name__ == '__main__':
         if args.cnn:
             g = CV_CNN(V, int(jnp.sqrt(V)), [args.width]*args.layers)
             g_params = g.init(g_ikey, jnp.zeros(V))
+
         else:
-            g1 = CV_MLP(V, L, [args.width]*args.layers)
-            g_params = g1.init(g_ikey, jnp.zeros(V))
+            if model.periodic:
+                g1 = CV_MLP_Periodic(V, L, [args.width]*args.layers)
+                g_params = g1.init(g_ikey, jnp.zeros(V))
+            else:
+                g1 = CV_MLP(V, L, [args.width]*args.layers)
+                g_params = g1.init(g_ikey, jnp.zeros(V))
 
     # g(Tx) = Tg(x)
     index = jnp.array([(-i, -j) for i in range(nt) for j in range(L)])
@@ -277,7 +296,8 @@ if __name__ == '__main__':
         configs = pickle.load(aa)
 
     # separate configurations for training and test
-    configs_test = jnp.concatenate(configs[:args.n_test]).reshape([args.n_test, V])
+    configs = jnp.array(configs)
+    configs_test = configs[:args.n_test]
     configs = configs[-args.n_train:]
 
     obs = jax.vmap(model.observe)(configs_test)

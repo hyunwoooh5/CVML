@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 
-from models import scalar
+from models import scalar, gauge
 from mc import metropolis, replica
-from cv import *
 import argparse
 import itertools
 import pickle
@@ -39,7 +38,8 @@ parser.add_argument('--dp', action='store_true',
                     help="turn on double precision")
 parser.add_argument('-T', '--thermalize', default=0,
                     type=int, help="number of MC steps (* d.o.f) to thermalize")
-parser.add_argument('-l', '--local', action='store_true', help="use local   action")
+parser.add_argument('-l', '--local', action='store_true',
+                    help="use local action")
 args = parser.parse_args()
 
 seed = args.seed
@@ -61,6 +61,7 @@ skip = args.skip
 if args.skip == 30:
     skip = V
 
+
 @jax.jit
 def observe(x):
     return 1.0, model.observe(x)
@@ -70,7 +71,8 @@ if args.replica:
     chain = replica.ReplicaExchange(model.action, jnp.zeros(
         V), chain_key, delta=1./jnp.sqrt(V), max_hbar=args.max_hbar, Nreplicas=args.nreplicas)
 elif args.local:
-    chain = metropolis.Chain_Local(model.action_local, jnp.zeros(V), chain_key, delta=1.)
+    chain = metropolis.Chain_Local(
+        model.action_local, jnp.zeros(V), chain_key, delta=1.)
 else:
     chain = metropolis.Chain(model.action, jnp.zeros(
         V), chain_key, delta=1./jnp.sqrt(V))
@@ -78,10 +80,13 @@ chain.calibrate()
 chain.step(N=args.thermalize*V)
 chain.calibrate()
 
-configs=[]
+configs = []
+
+
 def save():
     with open(args.cf, 'wb') as f:
         pickle.dump(configs, f)
+
 
 try:
     def slc(it): return it
@@ -89,15 +94,15 @@ try:
         def slc(it): return itertools.islice(it, args.samples)
     for x in slc(chain.iter(skip)):
         phase, obs = observe(x)
-        if jnp.size(obs)==1: 
+        if jnp.size(obs) == 1:
             obsstr = str(obs)
         else:
             obsstr = " ".join([str(x) for x in obs])
         print(f'{phase} {obsstr} {chain.acceptance_rate()}', flush=True)
         configs.append(x)
-        if len(configs)%1000==0: save()
+        if len(configs) % 1000 == 0:
+            save()
 
 
 except KeyboardInterrupt:
     pass
-        
