@@ -32,7 +32,6 @@ def sinh(x: any) -> any:
 
 class MLP(nn.Module):
     volume: int
-    length: int
     features: Sequence[int]
     kernel_init: Callable = nn.initializers.variance_scaling(
         2, "fan_in", "truncated_normal")  # for ReLU / CELU
@@ -52,26 +51,24 @@ class MLP(nn.Module):
 
 class CV_MLP(nn.Module):
     volume: int
-    length: int
     features: Sequence[int]
 
     @nn.compact
     def __call__(self, x):
-        x = MLP(self.volume, self.length, self.features)(x)
+        x = MLP(self.volume, self.features)(x)
         y = self.param('bias', nn.initializers.zeros, (1,))
         return x, y
 
 
 class CV_MLP_Periodic(nn.Module):
     volume: int
-    length: int
     features: Sequence[int]
 
     @nn.compact
     def __call__(self, x):
         input = jnp.sin(x)
 
-        x = MLP(self.volume, self.length, self.features)(input)
+        x = MLP(self.volume, self.features)(input)
         y = self.param('bias', nn.initializers.zeros, (1,))
         return x, y
 
@@ -204,10 +201,10 @@ if __name__ == '__main__':
 
         else:
             if model.periodic:
-                g1 = CV_MLP_Periodic(V, L, [args.width]*args.layers)
+                g1 = CV_MLP_Periodic(V, [args.width]*args.layers)
                 g_params = g1.init(g_ikey, jnp.zeros(V))
             else:
-                g1 = CV_MLP(V, L, [args.width]*args.layers)
+                g1 = CV_MLP(V, [args.width]*args.layers)
                 g_params = g1.init(g_ikey, jnp.zeros(V))
 
     # g(Tx) = Tg(x)
