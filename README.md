@@ -21,6 +21,7 @@ Here is an example:
 mkdir -p data
 vi model.dat # and copy and paste the above model
 make sample_scalar
-./sample_scalar 4 4 0.01 0.01 100 2000 > sample.dat \& # and the text file should be converted to jax array and it is saved as a pickle file with name config.pickle
+./sample_scalar 4 4 0.01 0.01 100 2000 > data/sample.dat \& 
+./converter.py '(4,4)'  data/sample.dat data/config.pickle
 ./cv.py data/model.dat data/cv.pickle data/config.pickle -i -l 1 -w 8 -lr 1e-3 -s -C 1000 # Terminal with CTRL-C
 ```
