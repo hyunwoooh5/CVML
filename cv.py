@@ -150,8 +150,6 @@ if __name__ == '__main__':
                         help="b1 parameter for adam")
     parser.add_argument('--b2', type=float, default=0.999,
                         help="b2 parameter for adam")
-    parser.add_argument('--weight', type=str, default='jnp.ones(len(grads))',
-                        help="weight for gradients")
     parser.add_argument('-nt', '--n_train', type=int, default=1000,
                         help="number of training set")
     parser.add_argument('-ns', '--n_test', type=int, default=1000,
@@ -252,6 +250,7 @@ if __name__ == '__main__':
     def Loss(x, p):
         _, y = g1.apply(p, x)
         # shift is not regularized
+        # How to define error when real and imag both fluctuate?
         return (model.observe(x).real - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
     Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
@@ -271,22 +270,6 @@ if __name__ == '__main__':
     def save():
         with open(args.cv, 'wb') as aa:
             pickle.dump((g1, g_params), aa)
-
-    def Grad_Mean(grads, weight):
-        """
-        Params:
-            grads: Gradients
-            weight: Weights
-        """
-        grads_w = [jax.tree_util.tree_map(
-            lambda x: w*x, g) for w, g in zip(weight, grads)]
-        w_mean = jnp.mean(weight)
-        grad_mean = jax.tree_util.tree_map(
-            lambda *x: jnp.mean(jnp.array(x), axis=0)/w_mean, *grads_w)
-        return grad_mean
-
-    grads = [0] * args.nstochastic
-    weight = eval(args.weight)
 
     # measurement
     with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
@@ -346,14 +329,13 @@ if __name__ == '__main__':
         opt_state = opt.init(g_params)
         opt_update_jit = jax.jit(opt.update)
 
-        grads = [0] * N
-
         for step in range(500):  # 500 epochs
             for s in range(args.n_train//N):
-                for l in range(N):
-                    grads[l] = Loss_grad(
-                        configs[N*s+l], g_params)
-                grad = Grad_Mean(grads, weight)
+                grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
+                    configs[N*s: N*(s+1)])
+
+                grad = jax.tree_util.tree_map(
+                    lambda x: jnp.mean(x, axis=0), grads)
                 updates, opt_state = opt_update_jit(grad, opt_state)
                 g_params = optax.apply_updates(g_params, updates)
 
@@ -387,11 +369,11 @@ if __name__ == '__main__':
         while True:
             g_ikey, subkey = jax.random.split(g_ikey)
             for s in range(args.n_train//args.nstochastic):  # one epoch
-                for l in range(args.nstochastic):
-                    grads[l] = Loss_grad(
-                        configs[args.nstochastic*s+l], g_params)
+                grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
+                    configs[args.nstochastic*s: args.nstochastic*(s+1)])
 
-                grad = Grad_Mean(grads, weight)
+                grad = jax.tree_util.tree_map(
+                    lambda x: jnp.mean(x, axis=0), grads)
                 updates, opt_state = opt_update_jit(grad, opt_state)
                 g_params = optax.apply_updates(g_params, updates)
 
