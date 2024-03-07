@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from models import scalar, gauge
-from mc import metropolis, replica
+from mc import metropolis, replica, hmc
 import argparse
 import itertools
 import pickle
@@ -18,11 +18,13 @@ import numpy as np
 jax.config.update('jax_platform_name', 'cpu')
 
 
-parser = argparse.ArgumentParser(description="Train contour")
+parser = argparse.ArgumentParser(description="Generate configurations")
 parser.add_argument('model', type=str, help="model filename")
 parser.add_argument('cf', type=str, help="configurations file name")
 parser.add_argument('-r', '--replica', action='store_true',
                     help="use replica exchange")
+parser.add_argument('-H', '--hmc', action='store_true',
+                    help="use HMC")
 parser.add_argument('-nrep', '--nreplicas', type=int, default=30,
                     help="number of replicas (with -r)")
 parser.add_argument('-maxh', '--max-hbar', type=float,
@@ -60,6 +62,8 @@ skip = args.skip
 
 if args.skip == 30:
     skip = V
+if args.hmc:
+    skip = 1
 
 
 @jax.jit
@@ -73,6 +77,8 @@ if args.replica:
 elif args.local:
     chain = metropolis.Chain_Local(
         model.action_local, jnp.zeros(V), chain_key, delta=1.)
+elif args.hmc:
+    chain = hmc.Chain(model.action, jnp.zeros(V), chain_key, L=10, dt=0.3)
 else:
     chain = metropolis.Chain(model.action, jnp.zeros(
         V), chain_key, delta=1./jnp.sqrt(V))
@@ -81,6 +87,8 @@ chain.step(N=args.thermalize*V)
 chain.calibrate()
 
 configs = []
+
+# jnp.set_printoptions(threshold=sys.maxsize, linewidth=np.inf)
 
 
 def save():
