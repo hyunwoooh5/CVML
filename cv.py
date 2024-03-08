@@ -11,9 +11,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
-import sympy
 import optax
-import optuna
 from util import *
 
 jax.config.update("jax_debug_nans", True)
@@ -66,13 +64,11 @@ class CV_MLP_Periodic(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        input = jnp.sin(x)
-        input = jnp.ravel(jnp.array([jnp.cos(x), jnp.sin(x)]))
+        input = jnp.ravel(jnp.array([jnp.sin(x), jnp.cos(x)]))
 
-        x1 = MLP(self.volume, self.features)(input)
-        x2 = MLP(self.volume, self.features)(input)
+        x = MLP(self.volume, self.features)(input)
         y = self.param('bias', nn.initializers.zeros, (1,))
-        return x1, x2, y
+        return x, y
 
 
 class CNN(nn.Module):
@@ -200,12 +196,11 @@ if __name__ == '__main__':
 
             @jax.jit
             def f(x, p):
-                d_g = jnp.trace(j(x, p))
-                d_act = dS(x)
-                # x = x.reshape([nt, L])
-                g_x, _ = g.apply(p, x)
+                dg = jnp.trace(j(x, p))
+                ds = dS(x)
+                gx, _ = g.apply(p, x)
 
-                return d_g - g_x@d_act
+                return dg - gx@ds
 
             # define loss function
             @jax.jit
@@ -250,14 +245,6 @@ if __name__ == '__main__':
                 j = jax.vmap(diag_)(index)[:, 0].sum()
                 return j - g(x, p)@dS(x)
 
-                # j = jaco(x, p)
-                # return j.diagonal().sum() - g(x, p)@dS(x)
-
-                # g: R^V -> R
-                # return jnp.sum(jax.grad(lambda x, p: g.apply(p, x)[0], argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x))
-
-                # All possible sum
-                # return j.sum() - jnp.kron(g.apply(p, x), jax.grad(lambda y: model.action(y).real)(x)).sum()
             # define loss function
             @jax.jit
             def Loss(x, p):
@@ -296,108 +283,21 @@ if __name__ == '__main__':
     obs = jax.vmap(model.observe)(configs_test)
     obs_av = jackknife(np.array(obs))
 
-    def objective(trial):
-        layers = trial.suggest_int('layers', 1, 5)
-        width = trial.suggest_int('width', 2, V//4, step=2)
+    # Training
+    while True:
+        g_ikey, subkey = jax.random.split(g_ikey)
+        configs = jax.random.permutation(key, configs)
+        for s in range(args.n_train//args.nstochastic):  # one epoch
+            grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
+                configs[args.nstochastic*s: args.nstochastic*(s+1)])
 
-        l2 = trial.suggest_float('l2', 0, 0.2)
-        lr = trial.suggest_float('lr', 1e-4, 1e-3)
-        end = trial.suggest_float('end', 1e-8, 1e-6)
-        b1 = trial.suggest_float('b1', 0.9, 1)
-        b2 = trial.suggest_float('b2', 0.9, 1)
-        care = trial.suggest_int('care', 100, 10000, step=100)
-        N = trial.suggest_categorical('N', sympy.divisors(100))
-
-        g_ikey = jax.random.PRNGKey(0)
-
-        g1 = CV_MLP(V, L, [width]*layers)
-        g_params = g1.init(g_ikey, jnp.zeros(V))
-
-        @jax.jit
-        def g(x, p):
-            def g_(x, p, ind):
-                return g1.apply(p, jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V))[0]
-            return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
-
-        @jax.jit
-        def f(x, p):
-            j = jax.jacfwd(lambda y: g(y, p))(x)
-            return j.diagonal().sum() - g(x, p)@jax.grad(lambda y: model.action(y).real)(x)
-
-        @jax.jit
-        def Loss(x, p):
-            _, y = g1.apply(p, x)
-            # shift is not regularized
-            return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=l2) for w in jax.tree_util.tree_leaves(p["params"])) - l2 * y[0]**2
-
-        Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
-
-        sched = optax.exponential_decay(
-            init_value=lr,
-            transition_steps=care,
-            decay_rate=0.99,
-            end_value=end)
-
-        opt = getattr(optax, 'adam')(sched, b1, b2)
-        opt_state = opt.init(g_params)
-        opt_update_jit = jax.jit(opt.update)
-
-        for step in range(500):  # 500 epochs
-            for s in range(args.n_train//N):
-                grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
-                    configs[N*s: N*(s+1)])
-
-                grad = jax.tree_util.tree_map(
-                    lambda x: jnp.mean(x, axis=0), grads)
-                updates, opt_state = opt_update_jit(grad, opt_state)
-                g_params = optax.apply_updates(g_params, updates)
-
-            fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
-
-            ob, err = jackknife(np.array(obs)-np.array(fs))
-            intermediate_value = err.real
-
-            trial.report(intermediate_value, step)
-
-            if trial.should_prune():
-                raise optuna.TrialPruned()
+            grad = jax.tree_util.tree_map(
+                lambda x: jnp.mean(x, axis=0), grads)
+            updates, opt_state = opt_update_jit(grad, opt_state)
+            g_params = optax.apply_updates(g_params, updates)
 
         fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
 
-        ob, err = jackknife(np.array(obs-fs))
-
-        return err.real
-    '''
-    from flax.training import train_state
-
-    class TrainState(train_state.TrainState):
-        key: jax.Array
-
-    if args.optuna:
-        study = optuna.create_study(
-            study_name=args.cv, direction='minimize', sampler=optuna.samplers.TPESampler(seed=42), pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=200, interval_steps=1, n_min_trials=5))  # single-objective optimization
-        optuna.logging.set_verbosity(optuna.logging.WARNING)
-        study.optimize(objective, n_trials=10)
-        print("Best Score:", study.best_value)
-        print("Best trial:", study.best_trial.params)
-        print("Parameter importance: ",
-              optuna.importance.get_param_importances(study))
-    else:
-        # Training
-        while True:
-            g_ikey, subkey = jax.random.split(g_ikey)
-            configs = jax.random.permutation(key, configs)
-            for s in range(args.n_train//args.nstochastic):  # one epoch
-                grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
-                    configs[args.nstochastic*s: args.nstochastic*(s+1)])
-
-                grad = jax.tree_util.tree_map(
-                    lambda x: jnp.mean(x, axis=0), grads)
-                updates, opt_state = opt_update_jit(grad, opt_state)
-                g_params = optax.apply_updates(g_params, updates)
-
-            fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
-
-            print(
-                f"{obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))}", flush=True)
-            save()
+        print(
+            f"{obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))}", flush=True)
+        save()
