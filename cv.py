@@ -67,10 +67,12 @@ class CV_MLP_Periodic(nn.Module):
     @nn.compact
     def __call__(self, x):
         input = jnp.sin(x)
+        input = jnp.ravel(jnp.array([jnp.cos(x), jnp.sin(x)]))
 
-        x = MLP(self.volume, self.features)(input)
+        x1 = MLP(self.volume, self.features)(input)
+        x2 = MLP(self.volume, self.features)(input)
         y = self.param('bias', nn.initializers.zeros, (1,))
-        return x, y
+        return x1, x2, y
 
 
 class CNN(nn.Module):
@@ -83,17 +85,14 @@ class CNN(nn.Module):
     @nn.compact
     def __call__(self, x):
         for feat in self.features:
-            x = nn.Conv(feat, kernel_size=(3, 3), kernel_init=self.kernel_init,
+            x = nn.Conv(feat, kernel_size=(3, 3), use_bias=False, kernel_init=self.kernel_init,
                         bias_init=self.bias_init, padding='CIRCULAR')(x)  # Periodic boundary
-            x = nn.celu(x)
-            x = nn.max_pool(x, window_shape=(2, 2),
-                            strides=(1, 1))  # max or avg
+            x = arcsinh(x)
+        x = nn.Conv(1, kernel_size=(3, 3), use_bias=False, kernel_init=self.kernel_init,
+                    bias_init=self.bias_init, padding='CIRCULAR')(x)
 
-        x = jnp.ravel(x)
-        x = nn.Dense(self.volume, kernel_init=self.kernel_init,
-                     use_bias=False)(x)
-        x = nn.celu(x)
-        return x
+        y = self.param('bias', nn.initializers.zeros, (1,))
+        return jnp.ravel(x), y
 
 
 class CV_CNN(nn.Module):
@@ -174,12 +173,11 @@ if __name__ == '__main__':
     with open(args.model, 'rb') as f:
         model = eval(f.read())
     V = model.dof
-    nt = model.shape[0]
-    L = model.shape[1]
+    nt, L = model.shape
 
     g_ikey, chain_key = jax.random.split(key, 2)
 
-    # define the function g
+    # define control variates
     loaded = False
     if not args.init and not args.fromfile:
         try:
@@ -194,8 +192,32 @@ if __name__ == '__main__':
         loaded = True
     if not loaded:
         if args.cnn:
-            g = CV_CNN(V, int(jnp.sqrt(V)), [args.width]*args.layers)
+            g = CV_CNN(V, L, [args.width]*args.layer)
             g_params = g.init(g_ikey, jnp.zeros(V))
+
+            dS = jax.jit(jax.grad(lambda y: model.action(y).real))
+            j = jax.jit(jax.jacfwd(lambda x, p: g.apply(p, x)[0], argnums=0))
+
+            @jax.jit
+            def f(x, p):
+                d_g = jnp.trace(j(x, p))
+                d_act = dS(x)
+                # x = x.reshape([nt, L])
+                g_x, _ = g.apply(p, x)
+
+                return d_g - g_x@d_act
+
+            # define loss function
+            @jax.jit
+            def Loss(x, p):
+                _, y = g.apply(p, x)
+
+                # shift is not regularized
+                return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+
+            def save():
+                with open(args.cv, 'wb') as aa:
+                    pickle.dump((g, g_params), aa)
 
         else:
             if model.periodic:
@@ -205,53 +227,48 @@ if __name__ == '__main__':
                 g1 = CV_MLP(V, [args.width]*args.layers)
                 g_params = g1.init(g_ikey, jnp.zeros(V))
 
-    # g(Tx) = Tg(x)
-    index = jnp.array([(-i, -j) for i in range(nt) for j in range(L)])
+            # g(Tx) = Tg(x)
+            index = jnp.array([(-i, -j) for i in range(nt) for j in range(L)])
 
-    @jax.jit
-    def g(x, p):
-        def g_(x, p, ind):
-            return g1.apply(p, jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V))[0]
-        return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
+            @jax.jit
+            def g(x, p):
+                def g_(x, p, ind):
+                    return g1.apply(p, jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V))[0]
+                return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
-    g1_grad = jax.jit(jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0))
-    dS = jax.jit(jax.grad(lambda y: model.action(y).real))
-    jaco = jax.jit(jax.jacfwd(g, argnums=0))
+            g1_grad = jax.jit(
+                jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0))
+            dS = jax.jit(jax.grad(lambda y: model.action(y).real))
+            jaco = jax.jit(jax.jacfwd(g, argnums=0))
 
-    # define subtraction function
-    @jax.jit
-    def f(x, p):
-        # diagonal sum (Stein's identity)
-        def diag_(ind):
-            return g1_grad(jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V), p)
-        j = jax.vmap(diag_)(index)[:, 0].sum()
-        return j - g(x, p)@dS(x)
+            # define subtraction function
+            @jax.jit
+            def f(x, p):
+                # diagonal sum (Stein's identity)
+                def diag_(ind):
+                    return g1_grad(jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V), p)
+                j = jax.vmap(diag_)(index)[:, 0].sum()
+                return j - g(x, p)@dS(x)
 
-        # j = jaco(x, p)
-        # return j.diagonal().sum() - g(x, p)@dS(x)
+                # j = jaco(x, p)
+                # return j.diagonal().sum() - g(x, p)@dS(x)
 
-        # g: R^V -> R
-        # return jnp.sum(jax.grad(lambda x, p: g.apply(p, x)[0], argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x))
+                # g: R^V -> R
+                # return jnp.sum(jax.grad(lambda x, p: g.apply(p, x)[0], argnums=0)(x, p) - jax.grad(lambda y: model.action(y).real)(x) * g.apply(p, x))
 
-        # All possible sum
-        # return j.sum() - jnp.kron(g.apply(p, x), jax.grad(lambda y: model.action(y).real)(x)).sum()
+                # All possible sum
+                # return j.sum() - jnp.kron(g.apply(p, x), jax.grad(lambda y: model.action(y).real)(x)).sum()
+            # define loss function
+            @jax.jit
+            def Loss(x, p):
+                _, y = g1.apply(p, x)
 
-    # regularizations
-    @jax.jit
-    def l2_loss(x, alpha):
-        return alpha*(x**2).mean()
+                # shift is not regularized
+                return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
-    @jax.jit
-    def l1_loss(x, alpha):
-        return alpha*(abs(x)).mean()
-
-    # define loss function
-    @jax.jit
-    def Loss(x, p):
-        _, y = g1.apply(p, x)
-        # shift is not regularized
-        # How to define error when real and imag both fluctuate?
-        return (model.observe(x).real - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+            def save():
+                with open(args.cv, 'wb') as aa:
+                    pickle.dump((g1, g_params), aa)
 
     Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -266,10 +283,6 @@ if __name__ == '__main__':
     opt = getattr(optax, args.optimizer)(sched, args.b1, args.b2)
     opt_state = opt.init(g_params)
     opt_update_jit = jax.jit(opt.update)
-
-    def save():
-        with open(args.cv, 'wb') as aa:
-            pickle.dump((g1, g_params), aa)
 
     # measurement
     with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
@@ -315,7 +328,7 @@ if __name__ == '__main__':
         def Loss(x, p):
             _, y = g1.apply(p, x)
             # shift is not regularized
-            return (model.observe(x).real - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=l2) for w in jax.tree_util.tree_leaves(p["params"])) - l2 * y[0]**2
+            return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=l2) for w in jax.tree_util.tree_leaves(p["params"])) - l2 * y[0]**2
 
         Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -354,6 +367,11 @@ if __name__ == '__main__':
         ob, err = jackknife(np.array(obs-fs))
 
         return err.real
+    '''
+    from flax.training import train_state
+
+    class TrainState(train_state.TrainState):
+        key: jax.Array
 
     if args.optuna:
         study = optuna.create_study(
@@ -368,6 +386,7 @@ if __name__ == '__main__':
         # Training
         while True:
             g_ikey, subkey = jax.random.split(g_ikey)
+            configs = jax.random.permutation(key, configs)
             for s in range(args.n_train//args.nstochastic):  # one epoch
                 grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
                     configs[args.nstochastic*s: args.nstochastic*(s+1)])

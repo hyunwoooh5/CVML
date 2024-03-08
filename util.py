@@ -70,3 +70,14 @@ def bootstrap(xs, ws=None, N=100, Bs=50):
         ms.append((sum(y[s]) / sum(w[s])))
     ms = np.array(ms)
     return m, np.std(ms.real) + 1j*np.std(ms.imag)
+
+
+# regularizations
+@jax.jit
+def l2_loss(x, alpha):
+    return alpha*(x**2).mean()
+
+
+@jax.jit
+def l1_loss(x, alpha):
+    return alpha*(abs(x)).mean()
