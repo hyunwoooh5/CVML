@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 from util import *
+from itertools import product
 
 jax.config.update("jax_debug_nans", True)
 jax.config.update("jax_debug_infs", True)
@@ -93,12 +94,11 @@ class CNN(nn.Module):
 
 class CV_CNN(nn.Module):
     volume: int
-    length: int
     features: Sequence[int]
 
     @nn.compact
-    def __call__(self, x):
-        x = x.reshape(self.length, self.length, 1)
+    def __call__(self, x, shape):
+        x = x.reshape(shape)
         x = CNN(self.volume, self.features)(x)
         return x
 
@@ -169,7 +169,6 @@ if __name__ == '__main__':
     with open(args.model, 'rb') as f:
         model = eval(f.read())
     V = model.dof
-    nt, L = model.shape
 
     g_ikey, chain_key = jax.random.split(key, 2)
 
@@ -188,24 +187,28 @@ if __name__ == '__main__':
         loaded = True
     if not loaded:
         if args.cnn:
-            g = CV_CNN(V, L, [args.width]*args.layer)
-            g_params = g.init(g_ikey, jnp.zeros(V))
+            shape = list(model.shape)
+            shape.append(1)
+
+            g = CV_CNN(V, [args.width]*args.layers)
+            g_params = g.init(g_ikey, jnp.zeros(V), shape)
 
             dS = jax.jit(jax.grad(lambda y: model.action(y).real))
-            j = jax.jit(jax.jacfwd(lambda x, p: g.apply(p, x)[0], argnums=0))
+            j = jax.jit(jax.jacfwd(
+                lambda x, p: g.apply(p, x, shape)[0], argnums=0))
 
             @jax.jit
             def f(x, p):
                 dg = jnp.trace(j(x, p))
                 ds = dS(x)
-                gx, _ = g.apply(p, x)
+                gx, _ = g.apply(p, x, shape)
 
                 return dg - gx@ds
 
             # define loss function
             @jax.jit
             def Loss(x, p):
-                _, y = g.apply(p, x)
+                _, y = g.apply(p, x, shape)
 
                 # shift is not regularized
                 return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
@@ -223,12 +226,13 @@ if __name__ == '__main__':
                 g_params = g1.init(g_ikey, jnp.zeros(V))
 
             # g(Tx) = Tg(x)
-            index = jnp.array([(-i, -j) for i in range(nt) for j in range(L)])
+            index = jnp.array(
+                [(-i, -j) for i, j in product(*list(map(lambda y: range(y), model.shape)))])
 
             @jax.jit
             def g(x, p):
                 def g_(x, p, ind):
-                    return g1.apply(p, jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V))[0]
+                    return g1.apply(p, jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V))[0]
                 return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
             g1_grad = jax.jit(
@@ -241,7 +245,7 @@ if __name__ == '__main__':
             def f(x, p):
                 # diagonal sum (Stein's identity)
                 def diag_(ind):
-                    return g1_grad(jnp.roll(x.reshape([nt, L]), ind, axis=(0, 1)).reshape(V), p)
+                    return g1_grad(jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V), p)
                 j = jax.vmap(diag_)(index)[:, 0].sum()
                 return j - g(x, p)@dS(x)
 
