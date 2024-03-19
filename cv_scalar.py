@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from models import scalar, gauge
+from models import scalar
 import pickle
 import sys
 import time
@@ -301,7 +301,8 @@ if __name__ == '__main__':
             g_params = optax.apply_updates(g_params, updates)
 
         fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
+        ls = jnp.mean(jax.vmap(lambda x: Loss(x, g_params))(configs_test))
 
         print(
-            f"{obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))}", flush=True)
+            f"{obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))} {ls}", flush=True)
         save()
