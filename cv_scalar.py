@@ -59,19 +59,6 @@ class CV_MLP(nn.Module):
         return x, y
 
 
-class CV_MLP_Periodic(nn.Module):
-    volume: int
-    features: Sequence[int]
-
-    @nn.compact
-    def __call__(self, x):
-        input = jnp.ravel(jnp.array([jnp.sin(x), jnp.cos(x)]))
-
-        x = MLP(self.volume, self.features)(input)
-        y = self.param('bias', nn.initializers.zeros, (1,))
-        return x, y
-
-
 class CNN(nn.Module):
     volume: int
     features: Sequence[int]
@@ -119,13 +106,7 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--layers', type=int, default=0,
                         help='number of (hidden) layers')
     parser.add_argument('-w', '--width', type=int, default=1,
-                        help='width (scaling)')
-    parser.add_argument('-r', '--replica', action='store_true',
-                        help="use replica exchange")
-    parser.add_argument('-nrep', '--nreplicas', type=int, default=30,
-                        help="number of replicas (with -r)")
-    parser.add_argument('-maxh', '--max-hbar', type=float, default=10.,
-                        help="maximum hbar (with -r)")
+                        help='width')
     parser.add_argument('--seed', type=int, default=0, help="random seed")
     parser.add_argument('--seed-time', action='store_true',
                         help="seed PRNG with current time")
@@ -151,8 +132,6 @@ if __name__ == '__main__':
                         help="number of test set")
     parser.add_argument('--l2', type=float, default=0.0,
                         help="l2 regularization")
-    parser.add_argument('-opt', '--optuna', action='store_true',
-                        help="Use optuna")
     parser.add_argument('--cnn',  action='store_true',
                         help="Use CNN")
 
@@ -218,12 +197,8 @@ if __name__ == '__main__':
                     pickle.dump((g, g_params), aa)
 
         else:
-            if model.periodic:
-                g1 = CV_MLP_Periodic(V, [args.width]*args.layers)
-                g_params = g1.init(g_ikey, jnp.zeros(V))
-            else:
-                g1 = CV_MLP(V, [args.width]*args.layers)
-                g_params = g1.init(g_ikey, jnp.zeros(V))
+            g1 = CV_MLP(V, [args.width]*args.layers)
+            g_params = g1.init(g_ikey, jnp.zeros(V))
 
             # g(Tx) = Tg(x)
             index = jnp.array(
@@ -290,7 +265,7 @@ if __name__ == '__main__':
     # Training
     while True:
         g_ikey, subkey = jax.random.split(g_ikey)
-        configs = jax.random.permutation(key, configs)
+        configs = jax.random.permutation(subkey, configs)
         for s in range(args.n_train//args.nstochastic):  # one epoch
             grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
                 configs[args.nstochastic*s: args.nstochastic*(s+1)])
