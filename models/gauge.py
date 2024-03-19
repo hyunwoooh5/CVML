@@ -58,13 +58,14 @@ class U1_2D_PBC:
     beta: float
 
     def __post_init__(self):
-        self.shape = (self.geom[0], self.geom[1], 2)
+        self.shape = (self.geom[0], self.geom[1], 1)
 
         self.lattice = Lattice(self.shape)
         self.dof = self.lattice.dof
         self.V = self.lattice.V
 
         self.plaq = self.lattice.plaquettes()
+        self.periodic = True
 
     def plaquette(self, phi):
         # phi = jnp.exp(1j*phi)

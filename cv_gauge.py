@@ -12,6 +12,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import sympy
+import optuna
 from util import *
 from itertools import product
 
@@ -223,7 +225,6 @@ if __name__ == '__main__':
                 return dg - gx@ds
 
             # define loss function
-
             @jax.jit
             def Loss(x, p):
                 _, y = g.apply(p, x, model.shape)
@@ -299,7 +300,7 @@ if __name__ == '__main__':
     opt_update_jit = jax.jit(opt.update)
 
     # measurement
-    with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
+    with open(args.cf, 'rb') as aa:
         configs = pickle.load(aa)
 
     # separate configurations for training and test
@@ -310,22 +311,102 @@ if __name__ == '__main__':
     obs = jax.vmap(lambda y: model.observe(y, 8))(configs_test)
     obs_av = jackknife(np.array(obs))
 
-    # Training
-    while True:
-        g_ikey, subkey = jax.random.split(g_ikey)
-        configs = jax.random.permutation(subkey, configs)
-        for s in range(args.n_train//args.nstochastic):  # one epoch
-            grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
-                configs[args.nstochastic*s: args.nstochastic*(s+1)])
+    def objective(trial):
+        layers = trial.suggest_int('layers', 1, 5)
+        width = trial.suggest_int('width', 2, V//4, step=2)
 
-            grad = jax.tree_util.tree_map(
-                lambda x: jnp.mean(x, axis=0), grads)
-            updates, opt_state = opt_update_jit(grad, opt_state)
-            g_params = optax.apply_updates(g_params, updates)
+        l2 = trial.suggest_float('l2', 0, 0.2)
+        lr = trial.suggest_float('lr', 1e-4, 1e-2)
+        end = trial.suggest_float('end', 1e-7, 1e-5)
+        b1 = trial.suggest_float('b1', 0.9, 1)
+        b2 = trial.suggest_float('b2', 0.9, 1)
+        care = trial.suggest_int('care', 100, 10000, step=100)
+        N = trial.suggest_categorical('N', sympy.divisors(1000))
+
+        g_ikey = jax.random.PRNGKey(0)
+
+        g = CV_CNN(V, [args.width]*args.layers)
+        g_params = g.init(g_ikey, jnp.zeros(V), model.shape)
+
+        @jax.jit
+        def f(x, p):
+            dg = jnp.trace(j(x, p))
+            ds = dS(x)
+            gx, _ = g.apply(p, x, model.shape)
+
+            return dg - gx@ds
+
+        @jax.jit
+        def Loss(x, p):
+            _, y = g.apply(p, x, model.shape)
+
+            # shift is not regularized
+            return jnp.abs(model.observe(x, 8) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+
+        Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
+
+        sched = optax.exponential_decay(
+            init_value=lr,
+            transition_steps=care,
+            decay_rate=0.1,
+            end_value=end)
+
+        opt = getattr(optax, 'adam')(sched, b1, b2)
+        opt_state = opt.init(g_params)
+        opt_update_jit = jax.jit(opt.update)
+
+        for step in range(2000):  # 2000 epochs
+            for s in range(args.n_train//N):
+                grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
+                    configs[N*s: N*(s+1)])
+
+                grad = jax.tree_util.tree_map(
+                    lambda x: jnp.mean(x, axis=0), grads)
+                updates, opt_state = opt_update_jit(grad, opt_state)
+                g_params = optax.apply_updates(g_params, updates)
+
+            fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
+
+            _, err = jackknife(np.array(obs)-np.array(fs))
+            intermediate_value = err.real
+
+            trial.report(intermediate_value, step)
+
+            if trial.should_prune():
+                raise optuna.TrialPruned()
 
         fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
-        ls = jnp.mean(jax.vmap(lambda x: Loss(x, g_params))(configs_test))
 
-        print(
-            f"{obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))} {ls}", flush=True)
-        save()
+        ob, err = jackknife(np.array(obs-fs))
+
+        return err.real
+
+    if args.optuna:
+        study = optuna.create_study(
+            study_name=args.cv, direction='minimize', sampler=optuna.samplers.TPESampler(seed=42), pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=200, interval_steps=1, n_min_trials=5))  # single-objective optimization
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        study.optimize(objective, n_trials=10)
+        print("Best Score:", study.best_value)
+        print("Best trial:", study.best_trial.params)
+        print("Parameter importance: ",
+              optuna.importance.get_param_importances(study))
+    else:
+        # Training
+        while True:
+            g_ikey, subkey = jax.random.split(g_ikey)
+            configs = jax.random.permutation(subkey, configs)
+            for s in range(args.n_train//args.nstochastic):  # one epoch
+                grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
+                    configs[args.nstochastic*s: args.nstochastic*(s+1)])
+
+                grad = jax.tree_util.tree_map(
+                    lambda x: jnp.mean(x, axis=0), grads)
+                updates, opt_state = opt_update_jit(grad, opt_state)
+                g_params = optax.apply_updates(g_params, updates)
+
+            fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
+            ls = jnp.mean(jax.vmap(lambda x: Loss(x, g_params))(configs_test))
+
+            print(
+                f"{obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))} {ls}", flush=True)
+            save()
