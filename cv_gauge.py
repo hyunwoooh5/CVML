@@ -404,8 +404,8 @@ if __name__ == '__main__':
                         configs_test[50*i: 50*(i+1)]))
                     ls.append(jax.vmap(lambda x: Loss(x, g_params))(
                         configs_test[50*i: 50*(i+1)]))
-                fs = jnp.array(fs)
-                ls = jnp.mean(ls)
+                fs = jnp.ravel(jnp.array(fs))
+                ls = jnp.mean(jnp.array(ls))
 
                 print(
                     f"Epoch {epochs}: {obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))} {ls}", flush=True)

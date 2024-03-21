@@ -72,17 +72,17 @@ class U1_2D_PBC:
         phi = phi.reshape(self.shape)
         return jax.vmap(lambda y: y[0]*y[1]/y[2]/y[3])(jax.vmap(jax.vmap(lambda y: phi[*y]))(self.plaq))
 
-    def action(self, phi):
+    def actionl(self, phi):
         return self.beta*jnp.sum(1-self.plaquette(phi)).real
 
-    def observe(self, phi, i):
+    def observel(self, phi, i):
         x = self.plaquette(phi)
         return jnp.prod(x[:i])
 
-    def actionl(self, phi):
+    def action(self, phi):
         return self.beta*jnp.sum(1-jnp.cos(phi))
 
-    def observel(self, phi, i):
+    def observe(self, phi, i):
         x = jnp.exp(1j*phi)
         return jnp.prod(x[:i])
 
