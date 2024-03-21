@@ -69,92 +69,22 @@ class U1_2D_PBC:
 
     def plaquette(self, phi):
         # phi = jnp.exp(1j*phi)
-        phi = phi.reshape(self.shape1)
+        phi = phi.reshape(self.shape)
         return jax.vmap(lambda y: y[0]*y[1]/y[2]/y[3])(jax.vmap(jax.vmap(lambda y: phi[*y]))(self.plaq))
-        x = jnp.array([j[0]*j[1]/j[2]/j[3] for j in [jax.vmap(lambda y: phi[*y])(self.plaq[i])
-                      for i in range(self.V)]])
-        return x
-
-        x = jnp.array([jax.vmap(lambda y: phi[*y])(self.plaq[i])
-                      for i in range(self.V)])
-        y = jnp.array([x[i][0]*x[i][1]/x[i][2]/x[i][3] for i in range(self.V)])
-        return y
 
     def action(self, phi):
-        return self.beta*jnp.sum(1-jnp.cos(1*phi))
+        return self.beta*jnp.sum(1-self.plaquette(phi)).real
 
     def observe(self, phi, i):
+        x = self.plaquette(phi)
+        return jnp.prod(x[:i])
+
+    def actionl(self, phi):
+        return self.beta*jnp.sum(1-jnp.cos(phi))
+
+    def observel(self, phi, i):
         x = jnp.exp(1j*phi)
         return jnp.prod(x[:i])
-
-    def action1(self, phi):
-        return self.beta*jnp.sum(1-self.plaquette(phi)).real
-        for i in range(self.V):
-            u1, u2, u3, u4 = jax.vmap(lambda y: phi[*y])(self.plaq[i])
-            s += 2.*(u1*u2/u3/u4).real
-        return -self.beta*s
-
-    def observe1(self, phi, i):
-        x = self.plaquette(phi)
-        return jnp.prod(x[:i])
-        plaq = self.lattice.plaquettes()
-
-        return jnp.prod(plaq[:i])
-
-        phi = phi.reshape(self.shape)
-        return jnp.prod(jnp.exp(1j*phi))
-
-    def plaquette3(self, phi):
-        phi = phi.reshape(self.shape)
-        return jax.vmap(lambda y: y[0]*y[1]/y[2]/y[3])(jax.vmap(jax.vmap(lambda y: phi[*y]))(self.plaq))
-        x = jnp.array([j[0]*j[1]/j[2]/j[3] for j in [jax.vmap(lambda y: phi[*y])(self.plaq[i])
-                      for i in range(self.V)]])
-        return x
-
-        x = jnp.array([jax.vmap(lambda y: phi[*y])(self.plaq[i])
-                      for i in range(self.V)])
-        y = jnp.array([x[i][0]*x[i][1]/x[i][2]/x[i][3] for i in range(self.V)])
-        return y
-
-    def action3(self, phi):
-        return -self.beta*jnp.sum(self.plaquette(phi)).real
-        for i in range(self.V):
-            u1, u2, u3, u4 = jax.vmap(lambda y: phi[*y])(self.plaq[i])
-            s += 2.*(u1*u2/u3/u4).real
-        return -self.beta*s
-
-    def observe3(self, phi, i):
-        x = self.plaquette(phi)
-        return jnp.prod(x[:i])
-        plaq = self.lattice.plaquettes()
-
-        return jnp.prod(plaq[:i])
-
-        phi = phi.reshape(self.shape)
-        return jnp.prod(jnp.exp(1j*phi))
-
-    def action2(self, phi):
-        s = 0
-        for i in range(self.shape[0]):
-            for j in range(self.shape[1]):
-                s += 2.*(phi[i, j, 0] * phi[(i+1) % self.shape[0], j, 1] /
-                         phi[i, (j+1) % self.shape[1], 0]/phi[i, j, 1]).real
-        return -self.beta*s
-
-    def observe2(self, phi, i):
-        s = 1
-        for j in range(i):
-            x = j // self.shape[0]
-            y = j % self.shape[0]
-            s *= phi[x, y, 0] * phi[(x+1) % self.shape[0], y, 1] / \
-                phi[x, (y+1) % self.shape[1], 0]/phi[x, y, 1]
-        return s
-        plaq = self.lattice.plaquettes()
-
-        return jnp.prod(plaq[:i])
-
-        phi = phi.reshape(self.shape)
-        return jnp.prod(jnp.exp(1j*phi))
 
 
 @dataclass

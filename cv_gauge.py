@@ -108,7 +108,7 @@ class CV_CNN(nn.Module):
 
     @nn.compact
     def __call__(self, x, shape):
-        x = jnp.exp(1j*x)
+        # x = jnp.exp(1j*x)
         x = x.reshape(shape)
         # x_odd = self.mask_odd*x
         # x_even = self.mask_even*x
@@ -165,6 +165,8 @@ if __name__ == '__main__':
                         help="Use optuna")
     parser.add_argument('--cnn',  action='store_true',
                         help="Use CNN")
+    parser.add_argument('--wilson', type=int, default=1,
+                        help="size of wilson loop")
 
     args = parser.parse_args()
 
@@ -230,7 +232,7 @@ if __name__ == '__main__':
                 _, y = g.apply(p, x, model.shape)
 
                 # shift is not regularized
-                return jnp.abs(model.observe(x, 8) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+                return jnp.abs(model.observe(x, args.wilson) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
             '''
             print(f(jax.random.normal(g_ikey, (V,)), g_params))
@@ -248,7 +250,7 @@ if __name__ == '__main__':
             else:
                 g1 = CV_MLP(V, [args.width]*args.layers)
                 g_params = g1.init(g_ikey, jnp.zeros(V))
-
+            model.shape = model.shape[:2]
             # g(Tx) = Tg(x)
             index = jnp.array(
                 [(-i, -j) for i, j in product(*list(map(lambda y: range(y), model.shape)))])
@@ -279,7 +281,7 @@ if __name__ == '__main__':
                 _, y = g1.apply(p, x)
 
                 # shift is not regularized
-                return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+                return jnp.abs(model.observe(x, args.wilson) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
             def save():
                 with open(args.cv, 'wb') as aa:
@@ -308,7 +310,7 @@ if __name__ == '__main__':
     # configs = jnp.log(configs).imag
     configs_test = configs[:args.n_test]
     configs = configs[-args.n_train:]
-    obs = jax.vmap(lambda y: model.observe(y, 8))(configs_test)
+    obs = jax.vmap(lambda y: model.observe(y, args.wilson))(configs_test)
     obs_av = jackknife(np.array(obs))
 
     def objective(trial):
@@ -341,7 +343,7 @@ if __name__ == '__main__':
             _, y = g.apply(p, x, model.shape)
 
             # shift is not regularized
-            return jnp.abs(model.observe(x, 8) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+            return jnp.abs(model.observe(x, args.wilson) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
         Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -392,7 +394,22 @@ if __name__ == '__main__':
               optuna.importance.get_param_importances(study))
     else:
         # Training
-        while True:
+        for epochs in range(10**10):
+            if epochs % 100 == 0:
+                fs = []
+                ls = []
+                # Reduce memory usage
+                for i in range(args.n_test//50):
+                    fs.append(jax.vmap(lambda x: f(x, g_params))(
+                        configs_test[50*i: 50*(i+1)]))
+                    ls.append(jax.vmap(lambda x: Loss(x, g_params))(
+                        configs_test[50*i: 50*(i+1)]))
+                fs = jnp.array(fs)
+                ls = jnp.mean(ls)
+
+                print(
+                    f"Epoch {epochs}: {obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))} {ls}", flush=True)
+
             g_ikey, subkey = jax.random.split(g_ikey)
             configs = jax.random.permutation(subkey, configs)
             for s in range(args.n_train//args.nstochastic):  # one epoch
@@ -404,9 +421,4 @@ if __name__ == '__main__':
                 updates, opt_state = opt_update_jit(grad, opt_state)
                 g_params = optax.apply_updates(g_params, updates)
 
-            fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
-            ls = jnp.mean(jax.vmap(lambda x: Loss(x, g_params))(configs_test))
-
-            print(
-                f"{obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))} {ls}", flush=True)
             save()
