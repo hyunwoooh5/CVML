@@ -263,7 +263,21 @@ if __name__ == '__main__':
     obs_av = jackknife(np.array(obs))
 
     # Training
-    while True:
+    for epochs in range(10**10):
+        if epochs % 100 == 0:
+            # Reduce memory usage
+            fs, ls = [], []
+            for i in range(args.n_test//50):
+                fs.append(jax.vmap(lambda x: f(x, g_params))(
+                    configs_test[50*i: 50*(i+1)]))
+                ls.append(jax.vmap(lambda x: Loss(x, g_params))(
+                    configs_test[50*i: 50*(i+1)]))
+            fs = jnp.ravel(jnp.array(fs))
+            ls = jnp.mean(jnp.array(ls))
+
+            print(
+                f"Epoch {epochs}: {obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))} {ls}", flush=True)
+
         g_ikey, subkey = jax.random.split(g_ikey)
         configs = jax.random.permutation(subkey, configs)
         for s in range(args.n_train//args.nstochastic):  # one epoch
@@ -275,9 +289,4 @@ if __name__ == '__main__':
             updates, opt_state = opt_update_jit(grad, opt_state)
             g_params = optax.apply_updates(g_params, updates)
 
-        fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
-        ls = jnp.mean(jax.vmap(lambda x: Loss(x, g_params))(configs_test))
-
-        print(
-            f"{obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))} {ls}", flush=True)
         save()
