@@ -40,7 +40,7 @@ class U1_2D_OBC:
     def action(self, phi):
         return -self.beta*jnp.cos(phi).sum()
 
-    def observe(self, phi):
+    def observe(self, phi, i):
         phi = phi.reshape(self.shape)
         # return jnp.array([jnp.prod(jnp.exp(1j*phi[:k, :k])) for k in range(1, self.shape[0]+1)])
         # return jnp.array([jnp.mean(jnp.array([jnp.prod(jnp.exp(1j*(jnp.roll(phi, (i, j), axis=(0, 1))[:k, :k])))
