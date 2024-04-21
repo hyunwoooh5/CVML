@@ -35,7 +35,9 @@ class U1_2D_OBC:
 
     def __post_init__(self):
         self.dof = np.prod(self.geom, dtype=int)
-        self.shape = self.geom
+        self.shape =  (self.geom[0], self.geom[1], 1)
+
+        self.periodic = True
 
     def action(self, phi):
         return -self.beta*jnp.cos(phi).sum()

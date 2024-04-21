@@ -67,9 +67,9 @@ class CV_MLP_Periodic(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        input = jnp.ravel(jnp.array([jnp.sin(x), jnp.cos(x)]))
+        x = jnp.ravel(jnp.array([jnp.sin(x), jnp.cos(x)]))
 
-        x = MLP(self.volume, self.features)(input)
+        x = MLP(self.volume, self.features)(x)
         y = self.param('bias', nn.initializers.zeros, (1,))
         return x, y
 
@@ -189,61 +189,19 @@ if __name__ == '__main__':
     if not args.init and not args.fromfile:
         try:
             with open(args.cv, 'rb') as f:
-                g, g_params = pickle.load(f)
+                g1, g_params = pickle.load(f)
             loaded = True
         except FileNotFoundError:
             pass
     if args.fromfile:
         with open(args.fromfile, 'rb') as f:
-            g, g_params = pickle.load(f)
+            g1, g_params = pickle.load(f)
         loaded = True
     if not loaded:
         if args.cnn:
-            g = CV_CNN(V, [args.width]*args.layers)
-            g_params = g.init(g_ikey, jnp.zeros(V), model.shape)
-
-            dS = jax.jit(jax.grad(lambda y: model.action(y).real))
-            j = jax.jit(jax.jacfwd(lambda x, p: g.apply(
-                p, x, model.shape)[0], argnums=0))
-
-            '''
-            print(dS(jax.random.normal(g_ikey, (V,))))
-            print(g.apply(g_params, jax.random.normal(
-                g_ikey, model.shape), model.shape)[0])
-            print(jnp.ravel(dS(jax.random.normal(g_ikey, model.shape)))@jnp.ravel(
-                g.apply(g_params, jax.random.normal(g_ikey, model.shape), model.shape)[0]))
-            print(g.apply(g_params, jax.random.normal(
-                g_ikey, model.shape), model.shape))
-            print(j(jax.random.normal(g_ikey, (V,)), g_params).shape)
-            print(jnp.trace(j(jax.random.normal(g_ikey, (V,)), g_params)))
-            '''
-
-            @jax.jit
-            def f(x, p):
-                dg = jnp.trace(j(x, p))
-                ds = dS(x)
-                gx, _ = g.apply(p, x, model.shape)
-
-                return dg - gx@ds
-
-            # define loss function
-            @jax.jit
-            def Loss(x, p):
-                _, y = g.apply(p, x, model.shape)
-
-                # shift is not regularized
-                return jnp.abs(model.observe(x, args.wilson) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
-
-            '''
-            print(f(jax.random.normal(g_ikey, (V,)), g_params))
-            print(Loss(jax.random.normal(g_ikey, (V,)), g_params))
-            '''
-
-            def save():
-                with open(args.cv, 'wb') as aa:
-                    pickle.dump((g, g_params), aa)
-
-        else:
+            g1 = CV_CNN(V, [args.width]*args.layers)
+            g_params = g1.init(g_ikey, jnp.zeros(V), model.shape)
+        else: 
             if model.periodic:
                 g1 = CV_MLP_Periodic(V, [args.width]*args.layers)
                 g_params = g1.init(g_ikey, jnp.zeros(V))
@@ -251,41 +209,60 @@ if __name__ == '__main__':
                 g1 = CV_MLP(V, [args.width]*args.layers)
                 g_params = g1.init(g_ikey, jnp.zeros(V))
             model.shape = model.shape[:2]
-            # g(Tx) = Tg(x)
-            index = jnp.array(
-                [(-i, -j) for i, j in product(*list(map(lambda y: range(y), model.shape)))])
 
-            @jax.jit
-            def g(x, p):
-                def g_(x, p, ind):
-                    return g1.apply(p, jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V))[0]
-                return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
+    if type(g1) == CV_CNN:
+        dS = jax.jit(jax.grad(lambda y: model.action(y).real))
+        j = jax.jit(jax.jacfwd(lambda x, p: g1.apply(
+            p, x, model.shape)[0], argnums=0))
 
-            g1_grad = jax.jit(
-                jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0))
-            dS = jax.jit(jax.grad(lambda y: model.action(y).real))
-            jaco = jax.jit(jax.jacfwd(g, argnums=0))
 
-            # define subtraction function
-            @jax.jit
-            def f(x, p):
-                # diagonal sum (Stein's identity)
-                def diag_(ind):
-                    return g1_grad(jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V), p)
-                j = jax.vmap(diag_)(index)[:, 0].sum()
-                return j - g(x, p)@dS(x)
+        @jax.jit
+        def f(x, p):
+            dg = jnp.trace(j(x, p))
+            ds = dS(x)
+            gx, _ = g1.apply(p, x, model.shape)
 
-            # define loss function
-            @jax.jit
-            def Loss(x, p):
-                _, y = g1.apply(p, x)
+            return dg - gx@ds
 
-                # shift is not regularized
-                return jnp.abs(model.observe(x, args.wilson) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+        # define loss function
+        @jax.jit
+        def Loss(x, p):
+            _, y = g1.apply(p, x, model.shape)
 
-            def save():
-                with open(args.cv, 'wb') as aa:
-                    pickle.dump((g1, g_params), aa)
+            # shift is not regularized
+            return jnp.abs(model.observe(x, args.wilson) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+    else:
+        # g(Tx) = Tg(x)
+        index = jnp.array(
+            [(-i, -j) for i, j in product(*list(map(lambda y: range(y), model.shape)))])
+
+        @jax.jit
+        def g(x, p):
+            def g_(x, p, ind):
+                return g1.apply(p, jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V))[0]
+            return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
+
+        g1_grad = jax.jit(
+            jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0))
+        dS = jax.jit(jax.grad(lambda y: model.action(y).real))
+        jaco = jax.jit(jax.jacfwd(g, argnums=0))
+
+        # define subtraction function
+        @jax.jit
+        def f(x, p):
+            # diagonal sum (Stein's identity)
+            def diag_(ind):
+                return g1_grad(jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V), p)
+            j = jax.vmap(diag_)(index)[:, 0].sum()
+            return j - g(x, p)@dS(x)
+
+        # define loss function
+        @jax.jit
+        def Loss(x, p):
+            _, y = g1.apply(p, x)
+
+            # shift is not regularized
+            return jnp.abs(model.observe(x, args.wilson) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
     Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -304,7 +281,7 @@ if __name__ == '__main__':
     # measurement
     with open(args.cf, 'rb') as aa:
         configs = pickle.load(aa)
-
+    
     # separate configurations for training and test
     configs = jnp.array(configs)
     # configs = jnp.log(configs).imag
@@ -312,6 +289,10 @@ if __name__ == '__main__':
     configs = configs[-args.n_train:]
     obs = jax.vmap(lambda y: model.observe(y, args.wilson))(configs_test)
     obs_av = jackknife(np.array(obs))
+
+    def save():
+        with open(args.cv, 'wb') as aa:
+            pickle.dump((g1, g_params), aa)
 
     def objective(trial):
         layers = trial.suggest_int('layers', 1, 5)
@@ -396,14 +377,14 @@ if __name__ == '__main__':
         # Training
         for epochs in range(10**10):
             if epochs % 100 == 0:
-                fs = []
-                ls = []
                 # Reduce memory usage
+                fs, ls = [], []
                 for i in range(args.n_test//50):
                     fs.append(jax.vmap(lambda x: f(x, g_params))(
                         configs_test[50*i: 50*(i+1)]))
                     ls.append(jax.vmap(lambda x: Loss(x, g_params))(
                         configs_test[50*i: 50*(i+1)]))
+
                 fs = jnp.ravel(jnp.array(fs))
                 ls = jnp.mean(jnp.array(ls))
 

@@ -156,85 +156,78 @@ if __name__ == '__main__':
     if not args.init and not args.fromfile:
         try:
             with open(args.cv, 'rb') as f:
-                g, g_params = pickle.load(f)
+                g1, g_params = pickle.load(f)
             loaded = True
         except FileNotFoundError:
             pass
     if args.fromfile:
         with open(args.fromfile, 'rb') as f:
-            g, g_params = pickle.load(f)
+            g1, g_params = pickle.load(f)
         loaded = True
     if not loaded:
         if args.cnn:
             shape = list(model.shape)
             shape.append(1)
 
-            g = CV_CNN(V, [args.width]*args.layers)
-            g_params = g.init(g_ikey, jnp.zeros(V), shape)
-
-            dS = jax.jit(jax.grad(lambda y: model.action(y).real))
-            j = jax.jit(jax.jacfwd(
-                lambda x, p: g.apply(p, x, shape)[0], argnums=0))
-
-            @jax.jit
-            def f(x, p):
-                dg = jnp.trace(j(x, p))
-                ds = dS(x)
-                gx, _ = g.apply(p, x, shape)
-
-                return dg - gx@ds
-
-            # define loss function
-            @jax.jit
-            def Loss(x, p):
-                _, y = g.apply(p, x, shape)
-
-                # shift is not regularized
-                return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
-
-            def save():
-                with open(args.cv, 'wb') as aa:
-                    pickle.dump((g, g_params), aa)
-
+            g1 = CV_CNN(V, [args.width]*args.layers)
+            g_params = g1.init(g_ikey, jnp.zeros(V), shape)
         else:
             g1 = CV_MLP(V, [args.width]*args.layers)
             g_params = g1.init(g_ikey, jnp.zeros(V))
 
-            # g(Tx) = Tg(x)
-            index = jnp.array(
-                [(-i, -j) for i, j in product(*list(map(lambda y: range(y), model.shape)))])
+    if type(g1) == CV_CNN:
+        dS = jax.jit(jax.grad(lambda y: model.action(y).real))
+        j = jax.jit(jax.jacfwd(
+            lambda x, p: g1.apply(p, x, shape)[0], argnums=0))
 
-            @jax.jit
-            def g(x, p):
-                def g_(x, p, ind):
-                    return g1.apply(p, jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V))[0]
-                return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
+        @jax.jit
+        def f(x, p):
+            dg = jnp.trace(j(x, p))
+            ds = dS(x)
+            gx, _ = g1.apply(p, x, shape)
 
-            g1_grad = jax.jit(
-                jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0))
-            dS = jax.jit(jax.grad(lambda y: model.action(y).real))
-            jaco = jax.jit(jax.jacfwd(g, argnums=0))
+            return dg - gx@ds
 
-            # define subtraction function
-            @jax.jit
-            def f(x, p):
-                # diagonal sum (Stein's identity)
-                def diag_(ind):
-                    return g1_grad(jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V), p)
-                j = jax.vmap(diag_)(index)[:, 0].sum()
-                return j - g(x, p)@dS(x)
+        # define loss function
+        @jax.jit
+        def Loss(x, p):
+            _, y = g1.apply(p, x, shape)
 
-            # define loss function
-            @jax.jit
-            def Loss(x, p):
-                _, y = g1.apply(p, x)
+            # shift is not regularized
+            return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
-                # shift is not regularized
-                return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
+    else:
+        # g(Tx) = Tg(x)
+        index = jnp.array(
+            [(-i, -j) for i, j in product(*list(map(lambda y: range(y), model.shape)))])
 
-            def save():
-                with open(args.cv, 'wb') as aa:
-                    pickle.dump((g1, g_params), aa)
+        @jax.jit
+        def g(x, p):
+            def g_(x, p, ind):
+                return g1.apply(p, jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V))[0]
+            return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
+
+        g1_grad = jax.jit(
+            jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0))
+        dS = jax.jit(jax.grad(lambda y: model.action(y).real))
+        jaco = jax.jit(jax.jacfwd(g, argnums=0))
+
+        # define subtraction function
+        @jax.jit
+        def f(x, p):
+            # diagonal sum (Stein's identity)
+            def diag_(ind):
+                return g1_grad(jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V), p)
+            j = jax.vmap(diag_)(index)[:, 0].sum()
+            return j - g(x, p)@dS(x)
+
+        # define loss function
+        @jax.jit
+        def Loss(x, p):
+            _, y = g1.apply(p, x)
+
+            # shift is not regularized
+            return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
     Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
 
@@ -261,6 +254,10 @@ if __name__ == '__main__':
 
     obs = jax.vmap(model.observe)(configs_test)
     obs_av = jackknife(np.array(obs))
+
+    def save():
+        with open(args.cv, 'wb') as aa:
+            pickle.dump((g1, g_params), aa)
 
     # Training
     for epochs in range(10**10):
