@@ -1,6 +1,6 @@
 #include <iostream>
 #include <random>
-#include <Eigen/Dense> // #include </home/oh/eigen-3.3.9/Eigen/Dense>
+#include <Eigen/Dense>
 #include <fstream>
 #include <ctime> // Timer
 #include <stdio.h>
@@ -43,13 +43,13 @@ dcomp Log_Det(const Eigen::MatrixXcd &m, Eigen::MatrixXcd *inv = NULL)
 // Metropolis
 double Action(Eigen::ArrayXd &A, params &p)
 {
-    if (A[0] < 0 || A[0] > PI / 2)
+    if (A[1] < 0 || A[1] > PI)
     {
         return pow(10, 10);
     }
     else
     {
-        return -4. / pow(p.g, 2) * sin(A[0]) * cos(A[1]) - log(sin(2 * A[0]));
+        return -4. / pow(p.g, 2) * cos(A[0] / 2.) - log(pow(sin(A[0] / 2.), 2) * sin(A[1]));
     }
 }
 
