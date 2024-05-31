@@ -35,19 +35,17 @@ class U1_2D_OBC:
 
     def __post_init__(self):
         self.dof = np.prod(self.geom, dtype=int)
-        self.shape =  (self.geom[0], self.geom[1], 1)
-
-        self.periodic = True
+        self.shape = (self.geom[0], self.geom[1], 1)
 
     def action(self, phi):
         return -self.beta*jnp.cos(phi).sum()
 
     def observe(self, phi, i):
-        phi = phi.reshape(self.shape)
+        # phi = phi.reshape(self.shape)
         # return jnp.array([jnp.prod(jnp.exp(1j*phi[:k, :k])) for k in range(1, self.shape[0]+1)])
         # return jnp.array([jnp.mean(jnp.array([jnp.prod(jnp.exp(1j*(jnp.roll(phi, (i, j), axis=(0, 1))[:k, :k])))
         #                                     for i in range(self.shape[0]) for j in range(self.shape[1])])) for k in range(1, self.shape[0]+1)])
-        return jnp.prod(jnp.exp(1j*phi))
+        return jnp.prod(jnp.exp(1j*phi[:i]))
         # Move the area and take average, full area
         # obs = jnp.array([jnp.mean(jnp.array([jnp.prod(jnp.exp(1j*(jnp.roll(phi, (i, j), axis=(0, 1))[:k, :k])))
         #                                     for i in range(self.shape[0]) for j in range(self.shape[1])])) for k in range(self.shape[0])])
@@ -67,7 +65,6 @@ class U1_2D_PBC:
         self.V = self.lattice.V
 
         self.plaq = self.lattice.plaquettes()
-        self.periodic = True
 
     def plaquette(self, phi):
         # phi = jnp.exp(1j*phi)
@@ -90,7 +87,7 @@ class U1_2D_PBC:
 
 
 @dataclass
-class SU2_2D_OBC:
+class SU2_2D_OBC_Bronzan:
     geom: Tuple[int]
     g: float
 
@@ -98,15 +95,37 @@ class SU2_2D_OBC:
         self.dof = np.prod(self.geom, dtype=int)
         self.shape = self.geom
 
-        self.periodic = True
-
     def action(self, phi):
         phi = phi.reshape([self.dof, 2**2-1])
 
         return jnp.sum(-4./(self.g**2)*jnp.sin(phi[:, 0])*jnp.cos(phi[:, 1])-jnp.log(jnp.sin(2*phi[:, 0])))
 
-    def observe(self, phi):
+    def observe(self, phi, i):
         phi = phi.reshape([self.dof, 2**2-1])
         plaq = jnp.array([[jnp.sin(phi[:, 0])*jnp.exp(1j*phi[:, 1]),
                          jnp.cos(phi[:, 0])*jnp.exp(1j*phi[:, 2])], [-jnp.cos(phi[:, 0])*jnp.exp(-1j*phi[:, 2]), jnp.sin(phi[:, 0])*jnp.exp(-1j*phi[:, 1])]]).transpose(2, 0, 1)
-        return jnp.trace(reduce(jnp.matmul, plaq))
+        return 0.5*jnp.trace(reduce(jnp.matmul, plaq[:i]))
+        return reduce(jnp.matmul, plaq[:i])[0, 0]
+
+
+@dataclass
+class SU2_2D_OBC_Euler:
+    geom: Tuple[int]
+    g: float
+
+    def __post_init__(self):
+        self.dof = np.prod(self.geom, dtype=int)
+        self.shape = self.geom
+
+    def action(self, phi):
+        phi = phi.reshape([self.dof, 2**2-1])
+
+        return jnp.sum(-4./(self.g**2)*jnp.cos(phi[:, 0]/2) - jnp.log(jnp.sin(phi[:, 0]/2)**2 * jnp.sin(phi[:, 1])))
+
+    def observe(self, phi, i):
+        phi = phi.reshape([self.dof, 2**2-1])
+
+        plaq = jnp.array([[jnp.cos(phi[:, 0]/2) + 1j*jnp.sin(phi[:, 0]/2) * jnp.cos(phi[:, 1]), jnp.sin(phi[:, 0]/2) * jnp.sin(phi[:, 1]) * (1j * jnp.cos(phi[:, 2]) + jnp.sin(phi[:, 2]))], [jnp.sin(phi[:, 0]/2) * jnp.sin(phi[:, 1]) * (1j * jnp.cos(
+            phi[:, 2]) - jnp.sin(phi[:, 2])), jnp.cos(phi[:, 0]/2) - 1j*jnp.sin(phi[:, 1]) * jnp.cos(phi[:, 1])]]).transpose(2, 0, 1)
+        return 0.5*jnp.trace(reduce(jnp.matmul, plaq[:i]))
+        return reduce(jnp.matmul, plaq[:i])[0, 0]
