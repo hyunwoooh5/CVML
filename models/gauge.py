@@ -39,7 +39,7 @@ class Lattice:
                     index.append([[x, y, z, 2], [x, y, (z+1) % self.shape[2], 0],
                                   [(x+1) % self.shape[0], y, z, 2], [x, y, z, 0]])
 
-        return jnp.array(index)
+        return jnp.array(index).reshape([self.V, 3, 4, 4]).transpose([1, 0, 2, 3]).reshape([self.dof, 4, 4])
 
 
 @dataclass
@@ -167,8 +167,17 @@ class U1_3D_PBC:
     def action(self, phi):
         return self.beta*jnp.sum(1-self.plaquette(phi)).real
 
-    def observe(self, phi, i, plane):
+    def wilsonloop(self, phi, i, plane):
         x = self.plaquette(phi)
-        x = x.reshape([3, self.V])
+        x = x.reshape([self.V, 3])
 
-        return jnp.prod(x[plane, :i])
+        return jnp.prod(x[:i, plane])
+
+    def correlation(self, x, i, av):
+        pl = self.plaquette(x).reshape(self.shape[::-1])
+        o = jnp.mean(pl[0], axis=(0, 1)).real
+        return jnp.sum(jnp.roll(o-av, -i) * (o-av))
+
+    def plaq_av(self, x):
+        pl = self.plaquette(x).reshape(self.shape[::-1])
+        return jnp.mean(pl[0], axis=(0, 1)).real
