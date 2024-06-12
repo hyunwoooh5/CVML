@@ -72,7 +72,7 @@ class U1_2D_PBC:
     beta: float
 
     def __post_init__(self):
-        self.shape = (self.geom[0], self.geom[1], 1)
+        self.shape = (self.geom[0], self.geom[1], 2)
 
         self.lattice = Lattice(self.shape)
         self.dof = self.lattice.dof
@@ -168,16 +168,15 @@ class U1_3D_PBC:
         return self.beta*jnp.sum(1-self.plaquette(phi)).real
 
     def wilsonloop(self, phi, i, plane):
-        x = self.plaquette(phi)
-        x = x.reshape([self.V, 3])
+        x = self.plaquette(phi).reshape(self.shape[::-1])
+        x = x.reshape([3, self.V])  # start from z -> y -> x
+        return jnp.prod(x[plane, :i])
 
-        return jnp.prod(x[:i, plane])
-
-    def correlation(self, x, i, av):
-        pl = self.plaquette(x).reshape(self.shape[::-1])
+    def correlation(self, phi, i, av):
+        pl = self.plaquette(phi).reshape(self.shape[::-1])
         o = jnp.mean(pl[0], axis=(0, 1)).real
         return jnp.sum(jnp.roll(o-av, -i) * (o-av))
 
-    def plaq_av(self, x):
-        pl = self.plaquette(x).reshape(self.shape[::-1])
+    def plaq_av(self, phi):
+        pl = self.plaquette(phi).reshape(self.shape[::-1])
         return jnp.mean(pl[0], axis=(0, 1)).real
