@@ -39,6 +39,7 @@ class Lattice:
                     index.append([[x, y, z, 2], [x, y, (z+1) % self.shape[2], 0],
                                   [(x+1) % self.shape[0], y, z, 2], [x, y, z, 0]])
 
+        # Order: xy plaq, yz plaq, zx plaq
         return jnp.array(index).reshape([self.V, 3, 4, 4]).transpose([1, 0, 2, 3]).reshape([self.dof, 4, 4])
 
 
@@ -167,16 +168,28 @@ class U1_3D_PBC:
     def action(self, phi):
         return self.beta*jnp.sum(1-self.plaquette(phi)).real
 
-    def wilsonloop(self, phi, i, plane):
-        x = self.plaquette(phi).reshape(self.shape[::-1])
-        x = x.reshape([3, self.V])  # start from z -> y -> x
-        return jnp.prod(x[plane, :i])
+    def wilsonloop12(self, phi, i):
+        # first 3: direction of plaquettes xy, yz, zx # lattice increases with z -> y -> x
+        x = self.plaquette(phi).reshape([3, self.V])
+        return jnp.prod(x[1, :i])
+
+    def wilsonloop01(self, phi, i):
+        # first 3: direction of plaquettes xy, yz, zx # lattice increases with z -> y -> x
+        x = self.plaquette(phi).reshape([3, self.V])[0]
+        x = x.reshape(self.shape[:-1]).transpose([2, 0, 1]).reshape(self.V)
+        return jnp.prod(x[:i])
+
+    def wilsonloop20(self, phi, i):
+        # first 3: direction of plaquettes xy, yz, zx # lattice increases with z -> y -> x
+        x = self.plaquette(phi).reshape([3, self.V])[2]
+        x = x.reshape(self.shape[:-1]).transpose([1, 2, 0]).reshape(self.V)
+        return jnp.prod(x[:i])
 
     def correlation(self, phi, i, av):
         pl = self.plaquette(phi).reshape(self.shape[::-1])
-        o = jnp.mean(pl[0], axis=(0, 1)).real
+        o = jnp.mean(pl[0], axis=(0, 1)).real  # plaquettes on xy-plane
         return jnp.sum(jnp.roll(o-av, -i) * (o-av))
 
     def plaq_av(self, phi):
         pl = self.plaquette(phi).reshape(self.shape[::-1])
-        return jnp.mean(pl[0], axis=(0, 1)).real
+        return jnp.mean(pl[0], axis=(0, 1)).real  # plaquettes on xy-plane
