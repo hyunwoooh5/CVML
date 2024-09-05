@@ -39,7 +39,7 @@ class Lattice:
                     index.append([[x, y, z, 2], [x, y, (z+1) % self.shape[2], 0],
                                   [(x+1) % self.shape[0], y, z, 2], [x, y, z, 0]])
 
-        # Order: xy plaq, yz plaq, zx plaq
+        # Order: xy plaq, yz plaq, zx plaq for each lattice point
         return jnp.array(index).reshape([self.V, 3, 4, 4]).transpose([1, 0, 2, 3]).reshape([self.dof, 4, 4])
 
 

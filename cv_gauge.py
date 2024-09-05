@@ -85,7 +85,8 @@ class CNN(nn.Module):
     def __call__(self, x):
         for feat in self.features:
             x = nn.Conv(feat, kernel_size=(3, 3), use_bias=True, kernel_init=self.kernel_init,
-                        bias_init=self.bias_init, padding='CIRCULAR')(x)  # Periodic boundary
+                        # Periodic boundary
+                        bias_init=self.bias_init, padding='CIRCULAR')(x)
             # x = arcsinh(x)
             x = nn.leaky_relu(x, negative_slope=0.01)
 
@@ -201,7 +202,7 @@ if __name__ == '__main__':
         if args.cnn:
             g1 = CV_CNN(V, [args.width]*args.layers)
             g_params = g1.init(g_ikey, jnp.zeros(V), model.shape)
-        else: 
+        else:
             if model.periodic:
                 g1 = CV_MLP_Periodic(V, [args.width]*args.layers)
                 g_params = g1.init(g_ikey, jnp.zeros(V))
@@ -214,7 +215,6 @@ if __name__ == '__main__':
         dS = jax.jit(jax.grad(lambda y: model.action(y).real))
         j = jax.jit(jax.jacfwd(lambda x, p: g1.apply(
             p, x, model.shape)[0], argnums=0))
-
 
         @jax.jit
         def f(x, p):
@@ -276,12 +276,19 @@ if __name__ == '__main__':
         sched = optax.constant_schedule(args.learningrate)
     opt = getattr(optax, args.optimizer)(sched, args.b1, args.b2)
     opt_state = opt.init(g_params)
-    opt_update_jit = jax.jit(opt.update)
+
+    @jax.jit
+    def train(x, p, opt_state):
+        grads = jax.vmap(lambda y: Loss_grad(y, p))(x)
+        grad = jax.tree_util.tree_map(lambda y: jnp.mean(y, axis=0), grads)
+        updates, opt_state = opt.update(grad, opt_state)
+        p = optax.apply_updates(p, updates)
+        return p, opt_state
 
     # measurement
     with open(args.cf, 'rb') as aa:
         configs = pickle.load(aa)
-    
+
     # separate configurations for training and test
     configs = jnp.array(configs)
     # configs = jnp.log(configs).imag
@@ -336,17 +343,19 @@ if __name__ == '__main__':
 
         opt = getattr(optax, 'adam')(sched, b1, b2)
         opt_state = opt.init(g_params)
-        opt_update_jit = jax.jit(opt.update)
+
+        @jax.jit
+        def train(x, p, opt_state):
+            grads = jax.vmap(lambda y: Loss_grad(y, p))(x)
+            grad = jax.tree_util.tree_map(lambda y: jnp.mean(y, axis=0), grads)
+            updates, opt_state = opt.update(grad, opt_state)
+            p = optax.apply_updates(p, updates)
+            return p, opt_state
 
         for step in range(2000):  # 2000 epochs
             for s in range(args.n_train//N):
-                grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
-                    configs[N*s: N*(s+1)])
-
-                grad = jax.tree_util.tree_map(
-                    lambda x: jnp.mean(x, axis=0), grads)
-                updates, opt_state = opt_update_jit(grad, opt_state)
-                g_params = optax.apply_updates(g_params, updates)
+                g_params, opt_state = train(
+                    configs[N*s: N*(s+1)], g_params, opt_state)
 
             fs = jax.vmap(lambda x: f(x, g_params))(configs_test)
 
@@ -366,7 +375,8 @@ if __name__ == '__main__':
 
     if args.optuna:
         study = optuna.create_study(
-            study_name=args.cv, direction='minimize', sampler=optuna.samplers.TPESampler(seed=42), pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=200, interval_steps=1, n_min_trials=5))  # single-objective optimization
+            # single-objective optimization
+            study_name=args.cv, direction='minimize', sampler=optuna.samplers.TPESampler(seed=42), pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=200, interval_steps=1, n_min_trials=5))
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         study.optimize(objective, n_trials=10)
         print("Best Score:", study.best_value)
@@ -394,12 +404,7 @@ if __name__ == '__main__':
             g_ikey, subkey = jax.random.split(g_ikey)
             configs = jax.random.permutation(subkey, configs)
             for s in range(args.n_train//args.nstochastic):  # one epoch
-                grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
-                    configs[args.nstochastic*s: args.nstochastic*(s+1)])
-
-                grad = jax.tree_util.tree_map(
-                    lambda x: jnp.mean(x, axis=0), grads)
-                updates, opt_state = opt_update_jit(grad, opt_state)
-                g_params = optax.apply_updates(g_params, updates)
+                g_params, opt_state = train(
+                    configs[args.nstochastic*s: args.nstochastic*(s+1)], g_params, opt_state)
 
             save()
