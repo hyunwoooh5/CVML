@@ -186,10 +186,10 @@ class U1_3D_PBC:
         return jnp.prod(x[:i])
 
     def correlation(self, phi, i, av):
-        pl = self.plaquette(phi).reshape(self.shape[::-1])
+        pl = self.plaquette(phi).reshape(self.shape[-1:]+self.shape[:-1])
         o = jnp.mean(pl[0], axis=(0, 1)).real  # plaquettes on xy-plane
         return jnp.sum(jnp.roll(o-av, -i) * (o-av))
 
     def plaq_av(self, phi):
-        pl = self.plaquette(phi).reshape(self.shape[::-1])
+        pl = self.plaquette(phi).reshape(self.shape[-1:]+self.shape[:-1])
         return jnp.mean(pl[0], axis=(0, 1)).real  # plaquettes on xy-plane
