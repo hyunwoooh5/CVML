@@ -19,12 +19,10 @@ jax.config.update("jax_debug_nans", True)
 jax.config.update("jax_debug_infs", True)
 
 
-@jax.jit
 def arcsinh(x: any) -> any:
     return jnp.arcsinh(x)
 
 
-@jax.jit
 def sinh(x: any) -> any:
     return jnp.sinh(x)
 
@@ -176,9 +174,8 @@ if __name__ == '__main__':
             g_params = g1.init(g_ikey, jnp.zeros(V))
 
     if type(g1) == CV_CNN:
-        dS = jax.jit(jax.grad(lambda y: model.action(y).real))
-        j = jax.jit(jax.jacfwd(
-            lambda x, p: g1.apply(p, x, shape)[0], argnums=0))
+        dS = jax.grad(lambda y: model.action(y).real)
+        j = jax.jacfwd(lambda x, p: g1.apply(p, x, shape)[0], argnums=0)
 
         @jax.jit
         def f(x, p):
@@ -201,16 +198,14 @@ if __name__ == '__main__':
         index = jnp.array(
             [(-i, -j) for i, j in product(*list(map(lambda y: range(y), model.shape)))])
 
-        @jax.jit
         def g(x, p):
             def g_(x, p, ind):
                 return g1.apply(p, jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V))[0]
             return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
-        g1_grad = jax.jit(
-            jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0))
-        dS = jax.jit(jax.grad(lambda y: model.action(y).real))
-        jaco = jax.jit(jax.jacfwd(g, argnums=0))
+        g1_grad = jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0)
+        dS = jax.grad(lambda y: model.action(y).real)
+        jaco = jax.jacfwd(g, argnums=0)
 
         # define subtraction function
         @jax.jit
@@ -229,7 +224,7 @@ if __name__ == '__main__':
             # shift is not regularized
             return jnp.abs(model.observe(x) - f(x, p) - y[0])**2 + sum(l2_loss(w, alpha=args.l2) for w in jax.tree_util.tree_leaves(p["params"])) - args.l2 * y[0]**2
 
-    Loss_grad = jax.jit(jax.grad(lambda x, p: Loss(x, p), argnums=1))
+    Loss_grad = jax.grad(lambda x, p: Loss(x, p), argnums=1)
 
     if args.schedule:
         sched = optax.exponential_decay(
@@ -241,7 +236,14 @@ if __name__ == '__main__':
         sched = optax.constant_schedule(args.learningrate)
     opt = getattr(optax, args.optimizer)(sched, args.b1, args.b2)
     opt_state = opt.init(g_params)
-    opt_update_jit = jax.jit(opt.update)
+
+    @jax.jit
+    def train(x, p, opt_state):
+        grads = jax.vmap(lambda y: Loss_grad(y, p))(x)
+        grad = jax.tree_util.tree_map(lambda y: jnp.mean(y, axis=0), grads)
+        updates, opt_state = opt.update(grad, opt_state)
+        p = optax.apply_updates(p, updates)
+        return p, opt_state
 
     # measurement
     with open(args.cf, 'rb') as aa:  # variable name aa should be different from f
@@ -278,12 +280,7 @@ if __name__ == '__main__':
         g_ikey, subkey = jax.random.split(g_ikey)
         configs = jax.random.permutation(subkey, configs)
         for s in range(args.n_train//args.nstochastic):  # one epoch
-            grads = jax.vmap(lambda y: Loss_grad(y, g_params))(
-                configs[args.nstochastic*s: args.nstochastic*(s+1)])
-
-            grad = jax.tree_util.tree_map(
-                lambda x: jnp.mean(x, axis=0), grads)
-            updates, opt_state = opt_update_jit(grad, opt_state)
-            g_params = optax.apply_updates(g_params, updates)
+            g_params, opt_state = train(
+                configs[args.nstochastic*s: args.nstochastic*(s+1)], g_params, opt_state)
 
         save()
