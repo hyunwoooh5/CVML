@@ -76,6 +76,7 @@ class StaggeredModel:
                     K = update_at(K, t, x)
         return K
 
+    # Not implemented yet
     def K_component(self, A, t, x, tp, xp):
         A = A.reshape((self.lattice.beta, self.lattice.L, 2))
 
@@ -146,6 +147,37 @@ class StaggeredModel:
         t, x = t.ravel(), x.ravel()
         dens = jnp.sum(jax.vmap(n_at)(t, x))
         return dens / (self.lattice.beta*self.lattice.L)
+
+    def cor(self, A, i):
+        idx = self.lattice.idx
+        Kinv = jnp.linalg.inv(self.K(A))
+
+        x, xp, t = jnp.indices((self.L, self.L, self.nt))
+        x, xp, t = x.ravel(), xp.ravel(), t.ravel()
+
+        co = jnp.sum(jax.vmap(lambda x, xp, t: (-1)**((x+xp)*t)
+                     * Kinv[idx(0, x), idx(i, xp)])(x, xp, t))
+        return jax.lax.select(i == 0, -co, co)
+
+    # From Thirring subtraction library on GitLab
+    # https://gitlab.com/yyamauchi/thirring
+    def correlator_f(self, A):
+        idx = self.lattice.idx
+        Kinv = jnp.linalg.inv(self.K(A))
+
+        x, xp = jnp.indices((self.L, self.L))
+        x, xp = x.ravel(), xp.ravel()
+
+        return jnp.array([jnp.sum(jax.vmap(lambda y, yp: Kinv[idx(0, y), idx(t, yp)])(x, xp)) for t in range(self.nt)])
+
+    def correlator_b(self, A):
+        idx = self.lattice.idx
+        Kinv = jnp.linalg.inv(self.K(A))
+
+        x, xp = jnp.indices((self.L, self.L))
+        x, xp = x.ravel(), xp.ravel()
+
+        return jnp.array([jnp.sum(jax.vmap(lambda y, yp: (-1)**(0+y+t+yp) * Kinv[idx(0, y), idx(t, yp)] * Kinv[idx(t, yp), idx(0, y)])(x, xp)) for t in range(self.nt)])
 
     def observe(self, A):
         return jnp.array([self.density(A)])
