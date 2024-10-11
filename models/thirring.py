@@ -181,3 +181,125 @@ class StaggeredModel:
 
     def observe(self, A):
         return jnp.array([self.density(A)])
+
+
+@dataclass
+class WilsonModel:
+    L: int
+    nt: int
+    m: float
+    g2: float
+    mu: float
+
+    def __post_init__(self):
+        self.lattice = Lattice(self.L, self.nt)
+
+        # backward compatibility
+        self.dof = self.lattice.dof
+        self.periodic_contour = self.lattice.periodic_contour
+        self.kappa = 1./(2*self.m + 4)
+        self.pm = jnp.array([[[1., -1], [-1, 1]], [[0., 0], [0, 2]]])
+        self.pm = self.pm.at[0].multiply(jnp.exp(self.mu))
+        self.pp = jnp.array([[[1., 1], [1, 1]], [[2., 0], [0, 0]]])
+        self.pp = self.pp.at[0].multiply(jnp.exp(-self.mu))
+
+    def M_old(self, A):
+        idx = self.lattice.idx
+        A = A.reshape((self.lattice.beta, self.lattice.L, 2))
+        M = jnp.eye(2*self.lattice.beta*self.lattice.L) + 0j
+
+        def update_at(M, t, x):
+            bc = jax.lax.cond(t == self.lattice.beta-1,
+                              lambda x: -x, lambda x: x, 1.)  # Anti-periodic BC for time direction
+            M = jax.lax.dynamic_update_slice(
+                M, -self.kappa * self.pm[0] * bc * jnp.exp(1j*A[t, x, 0]), (2*idx(t+1, x), 2*idx(t, x)))
+            M = jax.lax.dynamic_update_slice(
+                M, -self.kappa * self.pm[1] * jnp.exp(1j*A[t, x, 1]), (2*idx(t, x+1), 2*idx(t, x)))
+            M = jax.lax.dynamic_update_slice(
+                M, -self.kappa * self.pp[0] * bc * jnp.exp(-1j*A[t, x, 0]), (2*idx(t, x), 2*idx(t+1, x)))
+            M = jax.lax.dynamic_update_slice(
+                M, -self.kappa * self.pp[1] * jnp.exp(-1j*A[t, x, 1]), (2*idx(t, x), 2*idx(t, x+1)))
+
+            return M
+
+        ts, xs = self.lattice.sites()
+        ts = jnp.ravel(ts)
+        xs = jnp.ravel(xs)
+
+        def update_at_i(i, K):
+            return update_at(K, ts[i], xs[i])
+        M = jax.lax.fori_loop(0, len(ts), update_at_i, M)
+
+        return M
+
+    # Not implemented yet
+    def M_component(self, A, t, x, tp, xp):
+        A = A.reshape((self.lattice.beta, self.lattice.L, 2))
+
+        def diag(t, x):
+            return 1.0
+
+        def t_p(t, x):
+            eta0 = jax.lax.cond(t == self.lattice.beta-1,
+                                lambda x: -x, lambda x: x, 1.)
+            return -eta0/2 * jnp.exp(-self.mu - 1j*A[t, x, 0])
+
+        def t_m(t, x):
+            eta0 = jax.lax.cond(t == self.lattice.beta-1,
+                                lambda x: -x, lambda x: x, 1.)
+            return eta0/2 * jnp.exp(self.mu + 1j*A[t, x, 0])
+
+        def x_p(t, x):
+            eta1 = (-1)**t
+            return -eta1/2 * jnp.exp(-1j*A[t, x, 1])
+
+        def x_m(t, x):
+            eta1 = (-1)**t
+            return eta1/2 * jnp.exp(1j*A[t, x, 1])
+
+        def nada(t, x):
+            return 0.j
+
+        dt = (tp-t) % self.lattice.beta
+        dx = (xp-x) % self.lattice.L
+
+        ret = 0.j
+        ret += jax.lax.cond(jnp.logical_and(dt == 0,
+                            dx == 0), diag, nada, t, x)
+        ret += jax.lax.cond(jnp.logical_and(dt == 1, dx == 0), t_p, nada, t, x)
+        ret += jax.lax.cond(jnp.logical_and(dt == -1 %
+                            self.lattice.beta, dx == 0), t_m, nada, tp, x)
+        ret += jax.lax.cond(jnp.logical_and(dt == 0, dx == 1), x_p, nada, t, x)
+        ret += jax.lax.cond(jnp.logical_and(dt == 0, dx == -1 %
+                            self.lattice.L), x_m, nada, t, xp)
+
+        return ret
+
+    def M(self, A):
+        return self.M_old(A)
+        t, x = jnp.indices((self.lattice.beta, self.lattice.L))
+        t, x = t.ravel(), x.ravel()
+        return jax.vmap(lambda tp, xp: jax.vmap(lambda t, x: self.M_component(A, tp, xp, t, x))(t, x))(t, x)
+
+    def action(self, A):
+        s, logdet = jnp.linalg.slogdet(self.M(A))
+        return 2. * (1./(self.g2) * jnp.sum(1-jnp.cos(A)) - jnp.log(s) - logdet)
+
+    def chiral_condensate(self, A):
+        Minv = jnp.linalg.inv(self.M(A))
+
+        return Minv.trace()/self.lattice.V
+
+    def density(self, A):
+        idx = self.lattice.idx
+        Minv = jnp.linalg.inv(self.M(A))
+        gamma_0 = jnp.array([[0, 1], [1, 0]])
+
+        t, x = self.lattice.sites()
+        t, x = t.ravel(), x.ravel()
+
+        return jnp.mean(jax.vmap(lambda a, b: jnp.trace(jax.lax.dynamic_slice(
+            Minv, (2*idx(a, b), 2*idx(a, b)), (2, 2))@gamma_0))(t, x))
+
+    def observe(self, A):
+        return jnp.array([self.density(A)])
