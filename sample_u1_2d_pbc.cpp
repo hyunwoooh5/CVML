@@ -90,7 +90,7 @@ Eigen::ArrayXd Metropolis(Eigen::ArrayXd &A, int n, params &p)
     if (exp(-dS) >= rand01(gen))
     {
         accept++;
-
+        A_new[n] = std::fmod(A_new[n], 2. * PI);
         return A_new;
     }
     else
