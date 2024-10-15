@@ -232,6 +232,35 @@ class WilsonModel:
 
         return M
 
+    # different convention
+    def M_old2(self, A):
+        idx = self.lattice.idx
+        A = A.reshape((self.lattice.beta, self.lattice.L, 2))
+        A = A.at[-1, :, 0].add(jnp.pi)  # Anti-periodic BC for time direction
+        M = jnp.eye(2*self.lattice.beta*self.lattice.L) + 0j
+
+        def update_at(M, t, x):
+            M = jax.lax.dynamic_update_slice(
+                M, -self.kappa * self.pm[0] * jnp.exp(1j*A[t, x, 0]), (2*idx(t, x), 2*idx(t+1, x)))
+            M = jax.lax.dynamic_update_slice(
+                M, -self.kappa * self.pm[1] * jnp.exp(1j*A[t, x, 1]), (2*idx(t, x), 2*idx(t, x+1)))
+            M = jax.lax.dynamic_update_slice(
+                M, -self.kappa * self.pp[0] * jnp.exp(-1j*A[(t-1) % self.nt, x, 0]), (2*idx(t, x), 2*idx(t-1, x)))
+            M = jax.lax.dynamic_update_slice(
+                M, -self.kappa * self.pp[1] * jnp.exp(-1j*A[t, (x-1) % self.L, 1]), (2*idx(t, x), 2*idx(t, x-1)))
+
+            return M
+
+        ts, xs = self.lattice.sites()
+        ts = jnp.ravel(ts)
+        xs = jnp.ravel(xs)
+
+        def update_at_i(i, K):
+            return update_at(K, ts[i], xs[i])
+        M = jax.lax.fori_loop(0, len(ts), update_at_i, M)
+
+        return M
+
     # Not implemented yet
     def M_component(self, A, t, x, tp, xp):
         A = A.reshape((self.lattice.beta, self.lattice.L, 2))
@@ -308,7 +337,7 @@ class WilsonModel:
         tp, x, xp = jnp.indices((self.nt, self.L, self.L))
         tp, x, xp = tp.ravel(), x.ravel(), xp.ravel()
 
-        return jnp.array([jnp.sum(jax.vmap(lambda a, y, yp: jnp.trace(jax.lax.dynamic_slice(Minv, (2*idx(t+a, y), 2*idx(0+a, yp)), (2, 2))))(tp, x, xp)) for t in range(self.nt)])
+        return jnp.array([jnp.sum(jax.vmap(lambda a, y, yp: jax.lax.select(t+a >= self.nt, -1, 1) * jnp.trace(jax.lax.dynamic_slice(Minv, (2*idx(t+a, y), 2*idx(0+a, yp)), (2, 2))))(tp, x, xp)) for t in range(self.nt)])
 
     def correlator_b(self, A):
         idx = self.lattice.idx
