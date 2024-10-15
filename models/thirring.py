@@ -44,40 +44,40 @@ class StaggeredModel:
         self.dof = self.lattice.dof
         self.periodic_contour = self.lattice.periodic_contour
 
-    def K_old(self, A):
+    def M_old(self, A):
         idx = self.lattice.idx
         A = A.reshape((self.lattice.beta, self.lattice.L, 2))
-        K = self.m*jnp.eye(self.lattice.beta*self.lattice.L) + 0j
+        M = self.m*jnp.eye(self.lattice.beta*self.lattice.L) + 0j
 
-        def update_at(K, t, x):
+        def update_at(M, t, x):
             eta0 = jax.lax.cond(t == self.lattice.beta-1,
-                                lambda x: -x, lambda x: x, 1.)
+                                lambda x: -x, lambda x: x, 1.)  # Anti-periodic BC for time direction
             eta1 = (-1)**t
-            K = K.at[idx(t, x), idx(t, x+1)].add(-eta1 /
+            M = M.at[idx(t, x), idx(t, x+1)].add(-eta1 /
                                                  2 * jnp.exp(-1j*A[t, x, 1]))
-            K = K.at[idx(t, x+1), idx(t, x)].add(eta1 /
+            M = M.at[idx(t, x+1), idx(t, x)].add(eta1 /
                                                  2 * jnp.exp(1j*A[t, x, 1]))
-            K = K.at[idx(t, x), idx(t+1, x)].add(-eta0/2 *
+            M = M.at[idx(t, x), idx(t+1, x)].add(-eta0/2 *
                                                  jnp.exp(-self.mu - 1j*A[t, x, 0]))
-            K = K.at[idx(t+1, x), idx(t, x)].add(eta0/2 *
+            M = M.at[idx(t+1, x), idx(t, x)].add(eta0/2 *
                                                  jnp.exp(self.mu + 1j*A[t, x, 0]))
-            return K
+            return M
 
         ts, xs = self.lattice.sites()
         ts = jnp.ravel(ts)
         xs = jnp.ravel(xs)
 
-        def update_at_i(i, K):
-            return update_at(K, ts[i], xs[i])
-        K = jax.lax.fori_loop(0, len(ts), update_at_i, K)
+        def update_at_i(i, M):
+            return update_at(M, ts[i], xs[i])
+        M = jax.lax.fori_loop(0, len(ts), update_at_i, M)
         if False:
             for t in range(self.lattice.beta):
                 for x in range(self.lattice.L):
                     K = update_at(K, t, x)
-        return K
+        return M
 
     # Not implemented yet
-    def K_component(self, A, t, x, tp, xp):
+    def M_component(self, A, t, x, tp, xp):
         A = A.reshape((self.lattice.beta, self.lattice.L, 2))
 
         def diag(t, x):
@@ -119,27 +119,27 @@ class StaggeredModel:
 
         return ret
 
-    def K(self, A):
-        return self.K_old(A)
+    def M(self, A):
+        return self.M_old(A)
         t, x = jnp.indices((self.lattice.beta, self.lattice.L))
         t, x = t.ravel(), x.ravel()
         return jax.vmap(lambda tp, xp: jax.vmap(lambda t, x: self.K_component(A, tp, xp, t, x))(t, x))(t, x)
 
     def action(self, A):
-        s, logdet = jnp.linalg.slogdet(self.K(A))
+        s, logdet = jnp.linalg.slogdet(self.M(A))
         return 2./(self.g2) * jnp.sum(1-jnp.cos(A)) - jnp.log(s) - logdet
 
     def density(self, A):
         idx = self.lattice.idx
-        Kinv = jnp.linalg.inv(self.K(A))
+        Minv = jnp.linalg.inv(self.M(A))
         A = A.reshape((self.lattice.beta, self.lattice.L, 2))
 
         def n_at(t, x):
             eta0 = jax.lax.cond(t == self.lattice.beta-1,
                                 lambda x: -x, lambda x: x, 1.)
-            n = eta0/2 * Kinv[idx(t, x), idx(t+1, x)] * \
+            n = eta0/2 * Minv[idx(t, x), idx(t+1, x)] * \
                 jnp.exp(self.mu + 1j*A[t, x, 0])
-            n += eta0/2 * Kinv[idx(t+1, x), idx(t, x)] * \
+            n += eta0/2 * Minv[idx(t+1, x), idx(t, x)] * \
                 jnp.exp(-self.mu - 1j*A[t, x, 0])
             return n
 
@@ -148,36 +148,23 @@ class StaggeredModel:
         dens = jnp.sum(jax.vmap(n_at)(t, x))
         return dens / (self.lattice.beta*self.lattice.L)
 
-    def cor(self, A, i):
-        idx = self.lattice.idx
-        Kinv = jnp.linalg.inv(self.K(A))
-
-        x, xp, t = jnp.indices((self.L, self.L, self.nt))
-        x, xp, t = x.ravel(), xp.ravel(), t.ravel()
-
-        co = jnp.sum(jax.vmap(lambda x, xp, t: (-1)**((x+xp)*t)
-                     * Kinv[idx(0, x), idx(i, xp)])(x, xp, t))
-        return jax.lax.select(i == 0, -co, co)
-
-    # From Thirring subtraction library on GitLab
-    # https://gitlab.com/yyamauchi/thirring
     def correlator_f(self, A):
         idx = self.lattice.idx
-        Kinv = jnp.linalg.inv(self.K(A))
+        Minv = jnp.linalg.inv(self.M(A))
 
-        x, xp = jnp.indices((self.L, self.L))
-        x, xp = x.ravel(), xp.ravel()
+        tp, x, xp = jnp.indices((self.nt, self.L, self.L))
+        tp, x, xp = tp.ravel(), x.ravel(), xp.ravel()
 
-        return jnp.array([jnp.sum(jax.vmap(lambda y, yp: Kinv[idx(0, y), idx(t, yp)])(x, xp)) for t in range(self.nt)])
+        return jnp.array([jnp.sum(jax.vmap(lambda a, y, yp: jax.lax.select(t+a >= self.nt, -1, 1) * Minv[idx(t+a, y), idx(0+a, yp)])(tp, x, xp)) for t in range(self.nt)])
 
     def correlator_b(self, A):
         idx = self.lattice.idx
-        Kinv = jnp.linalg.inv(self.K(A))
+        Minv = jnp.linalg.inv(self.M(A))
 
-        x, xp = jnp.indices((self.L, self.L))
-        x, xp = x.ravel(), xp.ravel()
+        tp, x, xp = jnp.indices((self.nt, self.L, self.L))
+        tp, x, xp = tp.ravel(), x.ravel(), xp.ravel()
 
-        return jnp.array([jnp.sum(jax.vmap(lambda y, yp: (-1)**(0+y+t+yp) * Kinv[idx(0, y), idx(t, yp)] * Kinv[idx(t, yp), idx(0, y)])(x, xp)) for t in range(self.nt)])
+        return jnp.array([jnp.sum(jax.vmap(lambda a, y, yp: (-1)**(t+y+0+yp) * Minv[idx(t+a, y), idx(0+a, yp)] * Minv[idx(0+a, yp), idx(t+a, y)])(tp, x, xp)) for t in range(self.nt)])
 
     def observe(self, A):
         return jnp.array([self.density(A)])
@@ -255,8 +242,8 @@ class WilsonModel:
         ts = jnp.ravel(ts)
         xs = jnp.ravel(xs)
 
-        def update_at_i(i, K):
-            return update_at(K, ts[i], xs[i])
+        def update_at_i(i, M):
+            return update_at(M, ts[i], xs[i])
         M = jax.lax.fori_loop(0, len(ts), update_at_i, M)
 
         return M
