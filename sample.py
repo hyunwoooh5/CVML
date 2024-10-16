@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from models import scalar, gauge
+from models import *
 from mc import metropolis, replica, hmc
 import argparse
 import itertools
