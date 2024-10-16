@@ -22,15 +22,9 @@ class Chain:
             key, kacc = jax.random.split(key, 2)
             Sdiff = Sp - S
 
-            def accept():
-                return xp, Sp, True
-
-            def reject():
-                return x, S, False
-
             acc = jax.random.uniform(kacc) < jnp.exp(-Sdiff/temperature)
-            x, S, accepted = jax.lax.cond(acc, accept, reject)
-
+            x, S, accepted = jax.lax.cond(acc, lambda: (xp, Sp, True),
+                                          lambda: (x, S, False))
             return key, x, S, accepted
 
         self._propose = jax.jit(_propose)
@@ -81,7 +75,7 @@ class Chain_Local:
 
         def _propose(key, x, n, delta):
             kstep, key = jax.random.split(key, 2)
-            x=x.at[n].add(delta*jax.random.normal(kstep, x[n].shape))
+            x = x.at[n].add(delta*jax.random.normal(kstep, x[n].shape))
             return x
 
         def _acceptreject(key, temperature, x, xp, dS):
@@ -103,7 +97,8 @@ class Chain_Local:
 
     def _action_local(self, key, x, n, delta):
         xp = self._propose(key, x, n, delta)
-        dS = self.action_local(xp, n).real - self.action_local(x, n).real # calling function twice: slow
+        # calling function twice: slow
+        dS = self.action_local(xp, n).real - self.action_local(x, n).real
         return xp, dS
 
     def step(self, N=1):

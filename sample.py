@@ -94,7 +94,7 @@ configs = []
 
 def save():
     with open(args.cf, 'wb') as f:
-        pickle.dump(configs, f)
+        pickle.dump(jnp.array(configs), f)
 
 
 try:
