@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from models import *
+from models import scalar, gauge, thirring
 from mc import metropolis, replica, hmc
 import argparse
 import itertools
@@ -72,16 +72,17 @@ def observe(x):
 
 
 if args.replica:
-    chain = replica.ReplicaExchange(model.action, jnp.zeros(
-        V), chain_key, delta=1./jnp.sqrt(V), max_hbar=args.max_hbar, Nreplicas=args.nreplicas)
+    chain = replica.ReplicaExchange(jax.jit(model.action), jnp.zeros(V),
+                                    chain_key, delta=1./jnp.sqrt(V), max_hbar=args.max_hbar, Nreplicas=args.nreplicas)
 elif args.local:
     chain = metropolis.Chain_Local(
-        model.action_local, jnp.zeros(V), chain_key, delta=1.)
+        jax.jit(model.action_local), jnp.zeros(V), chain_key, delta=1.)
 elif args.hmc:
-    chain = hmc.Chain(model.action, jnp.zeros(V), chain_key, L=10, dt=0.3)
+    chain = hmc.Chain(jax.jit(model.action), jnp.zeros(V),
+                      chain_key, L=10, dt=0.3)
 else:
-    chain = metropolis.Chain(model.action, jnp.zeros(
-        V), chain_key, delta=1./jnp.sqrt(V))
+    chain = metropolis.Chain(jax.jit(model.action), jnp.zeros(V),
+                             chain_key, delta=1./jnp.sqrt(V))
 chain.calibrate()
 chain.step(N=args.thermalize*V)
 chain.calibrate()
