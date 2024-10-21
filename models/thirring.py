@@ -334,7 +334,7 @@ class WilsonModel:
         tp, x, xp = jnp.indices((self.nt, self.L, self.L))
         tp, x, xp = tp.ravel(), x.ravel(), xp.ravel()
 
-        return jnp.array([2.*jnp.sum(jax.vmap(lambda a, y, yp: jnp.trace(gamma_5 @ jax.lax.dynamic_slice(Minv, (2*idx(t+a, y), 2*idx(0+a, yp)), (2, 2)) @ gamma_5 @ jax.lax.dynamic_slice(Minv, (2*idx(0+a, yp), 2*idx(t+a, y)), (2, 2))))(tp, x, xp)) for t in range(self.nt)])
+        return jnp.array([jnp.sum(jax.vmap(lambda a, y, yp: jnp.trace(gamma_5 @ jax.lax.dynamic_slice(Minv, (2*idx(t+a, y), 2*idx(0+a, yp)), (2, 2)) @ gamma_5 @ jax.lax.dynamic_slice(Minv, (2*idx(0+a, yp), 2*idx(t+a, y)), (2, 2))))(tp, x, xp)) for t in range(self.nt)])
 
     def observe(self, A):
         return jnp.array([self.density(A)])
