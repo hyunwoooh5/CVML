@@ -137,16 +137,22 @@ class StaggeredModel:
         def n_at(t, x):
             eta0 = jax.lax.cond(t == self.lattice.beta-1,
                                 lambda x: -x, lambda x: x, 1.)
-            n = eta0/2 * Minv[idx(t, x), idx(t+1, x)] * \
-                jnp.exp(self.mu + 1j*A[t, x, 0])
-            n += eta0/2 * Minv[idx(t+1, x), idx(t, x)] * \
-                jnp.exp(-self.mu - 1j*A[t, x, 0])
+            n = eta0/2 * jnp.exp(self.mu + 1j * A[t, x, 0]) * \
+                Minv[idx(t, x), idx(t+1, x)]
+            n -= -eta0/2 * jnp.exp(-self.mu - 1j * A[t, x, 0]) * \
+                Minv[idx(t+1, x), idx(t, x)]
             return n
 
         t, x = jnp.indices((self.lattice.beta, self.lattice.L))
         t, x = t.ravel(), x.ravel()
         dens = jnp.sum(jax.vmap(n_at)(t, x))
         return dens / (self.lattice.beta*self.lattice.L)
+
+    def chiral_condensate(self, A):
+        Minv = jnp.linalg.inv(self.M(A))
+        A = A.reshape((self.lattice.beta, self.lattice.L, 2))
+
+        return jnp.trace(Minv) / (self.lattice.beta*self.lattice.L)
 
     def correlator_f(self, A):
         idx = self.lattice.idx
