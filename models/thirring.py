@@ -43,6 +43,7 @@ class StaggeredModel:
         # backward compatibility
         self.dof = self.lattice.dof
         self.periodic_contour = self.lattice.periodic_contour
+        self.shape = (self.nt, self.L, 2)
 
     def M_old(self, A):
         idx = self.lattice.idx
@@ -190,6 +191,8 @@ class WilsonModel:
         # backward compatibility
         self.dof = self.lattice.dof
         self.periodic_contour = self.lattice.periodic_contour
+        self.shape = (self.nt, self.L, 2)
+        
         self.kappa = 1./(2*self.m + 4)
         self.pm = jnp.array([[[1., -1], [-1, 1]], [[0., 0], [0, 2]]])
         self.pm = self.pm.at[0].multiply(jnp.exp(self.mu))
