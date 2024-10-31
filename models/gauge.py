@@ -185,6 +185,7 @@ class U1_3D_PBC:
         x = x.reshape(self.shape[:-1]).transpose([1, 2, 0]).reshape(self.V)
         return jnp.prod(x[:i])
 
+    # z direction is the time direction in this convention
     def correlation(self, phi, i, av):
         pl = self.plaquette(phi).reshape(self.shape[-1:]+self.shape[:-1])
         o = jnp.mean(pl[0], axis=(0, 1)).real  # plaquettes on xy-plane
