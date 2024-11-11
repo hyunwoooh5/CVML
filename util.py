@@ -73,11 +73,9 @@ def bootstrap(xs, ws=None, N=100, Bs=50):
 
 
 # regularizations
-@jax.jit
 def l2_loss(x, alpha):
     return alpha*(x**2).mean()
 
 
-@jax.jit
 def l1_loss(x, alpha):
     return alpha*(abs(x)).mean()
