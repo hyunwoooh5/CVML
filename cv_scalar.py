@@ -175,7 +175,7 @@ if __name__ == '__main__':
 
     if type(g1) == CV_CNN:
         dS = jax.grad(lambda y: model.action(y).real)
-        j = jax.jacfwd(lambda x, p: g1.apply(p, x, shape)[0], argnums=0)
+        j = jax.jacrev(lambda x, p: g1.apply(p, x, shape)[0], argnums=0)
 
         @jax.jit
         def f(x, p):
@@ -205,7 +205,7 @@ if __name__ == '__main__':
 
         g1_grad = jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0)
         dS = jax.grad(lambda y: model.action(y).real)
-        jaco = jax.jacfwd(g, argnums=0)
+        jaco = jax.jacrev(g, argnums=0)
 
         # define subtraction function
         @jax.jit
