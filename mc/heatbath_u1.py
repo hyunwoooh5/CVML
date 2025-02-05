@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 
+import jax
+from models import gauge
 import pickle
 import argparse
 import numpy as np
 
 import sys
 sys.path.append('../CVML')
-from models import gauge
 
-import jax
-jax.config.update("jax_platform_name","cpu")
+jax.config.update("jax_platform_name", "cpu")
 
 # Global counters for rejection sampling acceptance
 global_total_proposals = 0
@@ -236,7 +236,7 @@ if __name__ == "__main__":
         for _ in range(args.skip):
             U = heat_bath_sweep(U, model.beta, rng)
         configs.append(np.copy(U))
-        if sweep % 100 == 0:
+        if sweep % 100 == 100-1:
             avg_plaq = compute_average_plaquette(U)
             print(
                 f"Sweep {sweep+1:3d}: Average Plaquette = {avg_plaq:.6f}, Overall Acceptance Ratio = {global_total_accepts / global_total_proposals:.4f}", flush=True)
