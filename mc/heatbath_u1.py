@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 
-import jax
-from models import gauge
-import pickle
-import argparse
 import numpy as np
-
+import argparse
+import pickle
+import jax
 import sys
 sys.path.append('../CVML')
 
-jax.config.update("jax_platform_name", "cpu")
+from models import gauge
+
+jax.config.update("jax_platform_name", "cpu") # Turn off warning
 
 # Global counters for rejection sampling acceptance
 global_total_proposals = 0
