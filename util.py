@@ -1,6 +1,7 @@
 import numpy as np
 import jax
 import jax.numpy as jnp
+import flax
 
 
 def jackknife(xs, ws=None, Bs=50):  # Bs: Block size
@@ -79,3 +80,27 @@ def l2_loss(x, alpha):
 
 def l1_loss(x, alpha):
     return alpha*(abs(x)).mean()
+
+
+def l2_regularization(params):
+    # Flatten the nested parameter dict.
+    flat_params = flax.traverse_util.flatten_dict(params)
+    # Sum up the L2 norm of all parameters where the key ends with 'kernel'
+    l2_sum = sum(jnp.sum(param ** 2)
+                 for key, param in flat_params.items() if key[-1] == 'kernel')
+    return l2_sum
+
+
+def l1_regularization(params):
+    # Flatten the nested parameter dict.
+    flat_params = flax.traverse_util.flatten_dict(params)
+    # Sum up the L2 norm of all parameters where the key ends with 'kernel'
+    l2_sum = sum(jnp.sum(jnp.abs(param))
+                 for key, param in flat_params.items() if key[-1] == 'kernel')
+    return l2_sum
+
+
+def decay_mask(params):
+    flat = flax.traverse_util.flatten_dict(params)
+    mask = {path: (path[-1] == "kernel") for path in flat}
+    return flax.traverse_util.unflatten_dict(mask)
