@@ -112,7 +112,7 @@ if __name__ == '__main__':
                         help="turn on double precision")
     parser.add_argument('-lr', '--learningrate', type=float, default=1e-4,
                         help="learning rate")
-    parser.add_argument('-N', '--nstochastic', default=1, type=int,
+    parser.add_argument('-N', '--n_stochastic', default=1, type=int,
                         help="number of samples to estimate gradient")
     parser.add_argument('-o',  '--optimizer', choices=['adam', 'sgd', 'yogi'], default='adam',
                         help='optimizer to use')
@@ -175,7 +175,7 @@ if __name__ == '__main__':
 
     if type(g1) == CV_CNN:
         dS = jax.grad(lambda y: model.action(y).real)
-        j = jax.jacrev(lambda x, p: g1.apply(p, x, shape)[0], argnums=0)
+        j = jax.jacfwd(lambda x, p: g1.apply(p, x, shape)[0], argnums=0)
 
         @jax.jit
         def f(x, p):
@@ -203,17 +203,20 @@ if __name__ == '__main__':
                 return g1.apply(p, jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V))[0]
             return jnp.ravel(jax.vmap(lambda ind: g_(x, p, ind))(index).T)
 
-        g1_grad = jax.grad(lambda y, p: g1.apply(p, y)[0][0], argnums=0)
         dS = jax.grad(lambda y: model.action(y).real)
-        jaco = jax.jacrev(g, argnums=0)
 
         # define subtraction function
         @jax.jit
         def f(x, p):
             # diagonal sum (Stein's identity)
             def diag_(ind):
-                return g1_grad(jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V), p)
-            j = jax.vmap(diag_)(index)[:, 0].sum()
+                rolled_x = jnp.roll(x.reshape(model.shape), ind, axis=(0, 1)).reshape(V)
+
+                ei = jnp.zeros_like(x).at[0].set(1.0)
+                _, jvp_val = jax.jvp(lambda y: g1.apply(p, y)[0], (rolled_x,), (ei,))
+
+                return jvp_val[0]
+            j = jax.vmap(diag_)(index).sum()
             return j - g(x, p)@dS(x)
 
         # define loss function
@@ -251,36 +254,39 @@ if __name__ == '__main__':
 
     # separate configurations for training and test
     configs = jnp.array(configs)
-    configs_test = configs[:args.n_test]
-    configs = configs[-args.n_train:]
+    conf_test = configs[:args.n_test]
+    conf_train = configs[-args.n_train:]
 
-    obs = jax.vmap(model.observe)(configs_test)
+    obs = jax.vmap(model.observe)(conf_test)
     obs_av = jackknife(np.array(obs))
 
     def save():
         with open(args.cv, 'wb') as aa:
             pickle.dump((g1, g_params), aa)
 
+    ns=50
+
     # Training
     for epochs in range(10**10):
+        key, _ = jax.random.split(key)
+        conf_train = jax.random.permutation(key, conf_train)
+
         if epochs % 100 == 0:
             # Reduce memory usage
             fs, ls = [], []
-            for i in range(args.n_test//50):
+            for i in range(args.n_test//ns):
                 fs.append(jax.vmap(lambda x: f(x, g_params))(
-                    configs_test[50*i: 50*(i+1)]))
+                    conf_test[ns*i: ns*(i+1)]))
                 ls.append(jax.vmap(lambda x: Loss(x, g_params))(
-                    configs_test[50*i: 50*(i+1)]))
+                    conf_test[ns*i: ns*(i+1)]))
             fs = jnp.ravel(jnp.array(fs))
             ls = jnp.mean(jnp.array(ls))
 
             print(
                 f"Epoch {epochs}: {obs_av} {jackknife(np.array(obs-fs))} {jackknife(np.array(fs))} {ls}", flush=True)
 
-        g_ikey, subkey = jax.random.split(g_ikey)
-        configs = jax.random.permutation(subkey, configs)
-        for s in range(args.n_train//args.nstochastic):  # one epoch
+        for s in range(args.n_train//args.n_stochastic):  # one epoch
             g_params, opt_state = train(
-                configs[args.nstochastic*s: args.nstochastic*(s+1)], g_params, opt_state)
+                conf_train[args.n_stochastic*s: args.n_stochastic*(s+1)], g_params, opt_state)
 
         save()
