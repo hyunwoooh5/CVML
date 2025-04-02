@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+jax.config.update("jax_platform_name","cpu")
 
 parser = argparse.ArgumentParser(
     description="""Define geometry""",
@@ -39,5 +40,8 @@ if args.shuffle:
     conf = jax.random.permutation(key, conf.ravel())
     conf = conf.reshape([n_conf, dof])
 
+if args.n_config != -1:
+    conf = conf[:args.n_config]
+
 with open(args.output, 'wb') as f:
-    pickle.dump(conf[:args.n_config], f)
+    pickle.dump(conf, f)
