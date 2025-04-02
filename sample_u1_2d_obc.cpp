@@ -1,6 +1,6 @@
 #include <iostream>
 #include <random>
-#include <Eigen/Dense> // #include </home/oh/eigen-3.3.9/Eigen/Dense>
+#include <Eigen/Dense>
 #include <fstream>
 #include <ctime> // Timer
 #include <stdio.h>
