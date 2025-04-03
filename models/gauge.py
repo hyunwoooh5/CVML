@@ -27,21 +27,6 @@ class Lattice:
                              [x, (y+1) % self.shape[1], 0], [x, y, 1]])
         return jnp.array(index)
 
-    def plaquettes_3d(self):
-        index = []
-        for x in range(self.shape[0]):
-            for y in range(self.shape[1]):
-                for z in range(self.shape[2]):
-                    index.append([[x, y, z, 0], [(x+1) % self.shape[0], y, z, 1],
-                                  [x, (y+1) % self.shape[1], z, 0], [x, y, z, 1]])
-                    index.append([[x, y, z, 1], [x, (y+1) % self.shape[1], z, 2],
-                                  [x, y, (z+1) % self.shape[2], 1], [x, y, z, 2]])
-                    index.append([[x, y, z, 2], [x, y, (z+1) % self.shape[2], 0],
-                                  [(x+1) % self.shape[0], y, z, 2], [x, y, z, 0]])
-
-        # Order: xy plaq, yz plaq, zx plaq for each lattice point
-        return jnp.array(index).reshape([self.V, 3, 4, 4]).transpose([1, 0, 2, 3]).reshape([self.dof, 4, 4])
-
 
 @dataclass
 class U1_2D_OBC:
@@ -158,12 +143,15 @@ class U1_3D_PBC:
         self.dof = self.lattice.dof
         self.V = self.lattice.V
 
-        self.plaq = self.lattice.plaquettes_3d()
-
     def plaquette(self, phi):
-        phi = jnp.exp(1j*phi)
-        phi = phi.reshape(self.shape)
-        return jax.vmap(lambda y: y[0]*y[1]/y[2]/y[3])(jax.vmap(jax.vmap(lambda y: phi[*y]))(self.plaq))
+        phi = jnp.exp(1j*phi).reshape(self.shape)
+
+        plaqs = jnp.stack([phi[:, :, :, mu] * jnp.roll(phi[:, :, :, nu], -1, axis=mu) *
+                           jnp.roll(phi[:, :, :, mu].conj(), -1, axis=nu) *
+                           phi[:, :, :, nu].conj()
+                           for mu, nu in [(0, 1), (1, 2), (2, 0)]]).ravel()
+
+        return plaqs
 
     def action(self, phi):
         return self.beta*jnp.sum(1-self.plaquette(phi)).real
