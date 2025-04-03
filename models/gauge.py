@@ -19,14 +19,6 @@ class Lattice:
         n = len(args)
         return jnp.ravel_multi_index(args, self.shape[-n:], mode='wrap')
 
-    def plaquettes_2d(self):
-        index = []
-        for x in range(self.shape[0]):
-            for y in range(self.shape[1]):
-                index.append([[x, y, 0], [(x+1) % self.shape[0], y, 1],
-                             [x, (y+1) % self.shape[1], 0], [x, y, 1]])
-        return jnp.array(index)
-
 
 @dataclass
 class U1_2D_OBC:
@@ -64,12 +56,13 @@ class U1_2D_PBC:
         self.dof = self.lattice.dof
         self.V = self.lattice.V
 
-        self.plaq = self.lattice.plaquettes_2d()
-
     def plaquette(self, phi):
-        phi = jnp.exp(1j*phi)
-        phi = phi.reshape(self.shape)
-        return jax.vmap(lambda y: y[0]*y[1]/y[2]/y[3])(jax.vmap(jax.vmap(lambda y: phi[*y]))(self.plaq))
+        phi = jnp.exp(1j*phi).reshape(self.shape)
+
+        plaqs = jnp.array([phi[:, :, 0] * jnp.roll(phi[:, :, 1], -1, axis=0) *
+                           jnp.roll(phi[:, :, 0].conj(), -1, axis=1) * phi[:, :, 1].conj()])
+
+        return plaqs
 
     def actionl(self, phi):
         return self.beta*jnp.sum(1-self.plaquette(phi)).real
