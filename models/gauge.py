@@ -62,14 +62,14 @@ class U1_2D_PBC:
         plaqs = jnp.array([phi[:, :, 0] * jnp.roll(phi[:, :, 1], -1, axis=0) *
                            jnp.roll(phi[:, :, 0].conj(), -1, axis=1) * phi[:, :, 1].conj()])
 
-        return plaqs
+        return plaqs.ravel() # plaqs shape is (1, L, L)
 
     def actionl(self, phi):
         return self.beta*jnp.sum(1-self.plaquette(phi)).real
 
     def observel(self, phi, i):
         x = self.plaquette(phi)
-        return jnp.prod(x[:i])
+        return jnp.prod(x[:i]) 
 
     def action(self, phi):
         return self.beta*jnp.sum(1-jnp.cos(phi))
