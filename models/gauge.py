@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Tuple
 from functools import reduce
+from itertools import product
 
 import jax
 import jax.numpy as jnp
@@ -62,21 +63,25 @@ class U1_2D_PBC:
         plaqs = jnp.array([phi[:, :, 0] * jnp.roll(phi[:, :, 1], -1, axis=0) *
                            jnp.roll(phi[:, :, 0].conj(), -1, axis=1) * phi[:, :, 1].conj()])
 
-        return plaqs.ravel() # plaqs shape is (1, L, L)
-
-    def actionl(self, phi):
-        return self.beta*jnp.sum(1-self.plaquette(phi)).real
-
-    def observel(self, phi, i):
-        x = self.plaquette(phi)
-        return jnp.prod(x[:i]) 
+        return plaqs[0]  # plaqs shape is (1, L, L)
 
     def action(self, phi):
-        return self.beta*jnp.sum(1-jnp.cos(phi))
+        return self.beta*jnp.sum(1-self.plaquette(phi)).real
 
-    def observe(self, phi, i):
-        x = jnp.exp(1j*phi)
+    def wilsonloop_single(self, phi, i):
+        x = self.plaquette(phi)
         return jnp.prod(x[:i])
+
+    def wilsonloop_average(self, phi, i):
+        plaqs = self.plaquette(phi)
+        index = jnp.array(
+            [(-i, -j) for i, j in product(*list(map(lambda y: range(y), self.shape[:-1])))])
+
+        def loop(ind):
+            plaqs_rolled = jnp.roll(plaqs, ind, axis=(0, 1)).ravel()
+            return jnp.prod(plaqs_rolled[:i])
+
+        return jax.vmap(loop)(index).mean()
 
 
 @dataclass
