@@ -86,8 +86,10 @@ Eigen::ArrayXd Metropolis(Eigen::ArrayXd &A, int n, params &p)
     }
 }
 
-Eigen::ArrayXd Sweep(Eigen::ArrayXd &A, params &p)
+Eigen::MatrixXd Sweep(Eigen::ArrayXd &A, params &p)
 {
+    Eigen::MatrixXd samples = Eigen::MatrixXd::Zero(p.dof, p.n_conf);
+
     for (int i = 0; i < p.n_conf; i++)
     {
         for (int j = 0; j < p.n_decor; j++)
@@ -97,10 +99,10 @@ Eigen::ArrayXd Sweep(Eigen::ArrayXd &A, params &p)
                 A = Metropolis(A, k, p);
             }
         }
-        std::cout << A << std::endl;
+        samples.col(i) = A;
     }
 
-    return A;
+    return samples;
 }
 
 Eigen::ArrayXd Thermalization(Eigen::ArrayXd &A, params &p)
@@ -165,7 +167,23 @@ int main(int argc, char **argv)
     Calibrate(configuration, p);
     Thermalization(configuration, p);
     Calibrate(configuration, p);
-    Sweep(configuration, p);
+    Eigen::MatrixXd sample = Sweep(configuration, p);
+
+    std::ofstream outfile(argv[8], std::ios::binary);
+    if (!outfile)
+    {
+        std::cerr << "Error opening file for writing.\n";
+        return 1;
+    }
+
+    outfile.write(reinterpret_cast<char *>(&p.dof), sizeof(int));
+    outfile.write(reinterpret_cast<char *>(&p.n_conf), sizeof(int));
+
+    // Write the Eigen array data to the file in binary format
+    outfile.write(reinterpret_cast<const char *>(sample.data()), sample.size() * sizeof(double));
+
+    // Close the file
+    outfile.close();
 
     return 0;
 }
