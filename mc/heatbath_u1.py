@@ -240,4 +240,4 @@ if __name__ == "__main__":
             avg_plaq = compute_average_plaquette(U)
             print(
                 f"Sweep {sweep+1:3d}: Average Plaquette = {avg_plaq:.6f}, Overall Acceptance Ratio = {global_total_accepts / global_total_proposals:.4f}", flush=True)
-            save()
+    save()
