@@ -216,11 +216,7 @@ if __name__ == "__main__":
     dims = model.geom
     d = len(dims)
 
-    configs = []
-
-    def save():
-        with open(args.cf, 'wb') as aa:
-            pickle.dump(configs, aa)
+    configs = np.zeros([args.samples, model.dof])
 
     # Initialize U(1) gauge links.
     # U has shape dims + (d,): each site has d link variables.
@@ -235,9 +231,10 @@ if __name__ == "__main__":
     for sweep in range(args.samples):
         for _ in range(args.skip):
             U = heat_bath_sweep(U, model.beta, rng)
-        configs.append(np.copy(U))
+        configs[sweep, :] = np.log(np.copy(U)).imag.ravel()
         if sweep % 100 == 100-1:
             avg_plaq = compute_average_plaquette(U)
             print(
                 f"Sweep {sweep+1:3d}: Average Plaquette = {avg_plaq:.6f}, Overall Acceptance Ratio = {global_total_accepts / global_total_proposals:.4f}", flush=True)
-    save()
+    
+    np.save(args.cf, configs)
