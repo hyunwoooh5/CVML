@@ -14,9 +14,7 @@ If you use this code or a derivative of it, please consider citing one or more o
 First define a model with a text file. For example, phi-4 theory can be saved as
 ```
 scalar.Model(
-geom=(4,),
-nbeta=4,
-nt=0,
+geom=(4,4),
 m2=0.01,
 lamda=0.01
 )

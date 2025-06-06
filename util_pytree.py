@@ -28,3 +28,11 @@ def tree_dot(tree, vec):
     dots = jax.tree_util.tree_map(
         lambda leaf: vector_broadcasting(leaf, vec), tree)
     return jax.tree_util.tree_map(lambda x: jnp.sum(x, axis=0), dots)
+
+
+def copy_pytree(tree):
+    """Copy a pytree."""
+    def copy_leaf(x):
+        return x.copy()
+
+    return jax.tree_util.tree_map(copy_leaf, tree)

@@ -99,7 +99,7 @@ def l1_regularization(params):
                  for key, param in flat_params.items() if key[-1] == 'kernel')
     return l2_sum
 
-
+# For adamW
 def decay_mask(params):
     flat = flax.traverse_util.flatten_dict(params)
     mask = {path: (path[-1] == "kernel") for path in flat}
