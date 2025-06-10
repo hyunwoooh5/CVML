@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+import sys
+sys.path.append('../CVML')
+
 from models import scalar, gauge, thirring
 from mc import metropolis, replica, hmc
 import argparse
