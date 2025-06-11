@@ -84,7 +84,7 @@ if __name__ == '__main__':
                         help='width')
     parser.add_argument('-n', '--nx', type=int, default=1,
                         help='sin(nx), cos(nx)')
-    parser.add_argument('--seed', type=int, default=0, help="random seed")
+    parser.add_argument('--seed', type=int, default=1, help="random seed")
     parser.add_argument('--seed-time', action='store_true',
                         help="seed PRNG with current time")
     parser.add_argument('--dp', action='store_true',
@@ -191,7 +191,7 @@ if __name__ == '__main__':
         _, y = g1.apply(p, x)
         al = 0
 
-        return jnp.abs(model.correlation(x, 2, av).real - f(x, p) - y[0])**2 + al * l2_regularization(p)
+        return jnp.abs(model.correlation(x, model.shape[2]//2, av).real - f(x, p) - y[0])**2 + al * l2_regularization(p)
 
     def Loss_batch(batch, params):
         # Compute the per-sample losses
@@ -225,7 +225,7 @@ if __name__ == '__main__':
     @jax.jit
     def train_batch_shard(x, p, opt_state):
         grad = Loss_batch_grad(x, p)
-        updates, opt_state = opt.update(grad, opt_state, p)  # needed for adamW
+        updates, opt_state = opt.update(grad, opt_state)
         p = optax.apply_updates(p, updates)
         return p, opt_state
 
@@ -242,6 +242,7 @@ if __name__ == '__main__':
         batch = jax.device_put(conf[i*args.batch_test:(i+1)*args.batch_test])
         av.append(plaq_av_jit(batch))
     av = jnp.mean(jnp.asarray(av), axis=(0, 1))
+    print(f"plaq_av: {av}")
 
     obs = jax.vmap(lambda y: model.correlation(
         y, model.shape[2]//2, av).real)(conf_test)[:(args.n_test//args.batch_test)*args.batch_test]
@@ -271,7 +272,8 @@ if __name__ == '__main__':
     g_params = jax.device_put(g_params, replicated_sharding)
 
     # Training
-    for epochs in range(30000):
+    start = time.time()
+    for epochs in range(3):
         key, _ = jax.random.split(key)
         perm = jax.random.permutation(key, args.n_train)
 
@@ -294,16 +296,16 @@ if __name__ == '__main__':
             ltrain = jnp.mean(jnp.array(ltrain))
 
             print(
-                f"Epoch {epochs}:  <Test Loss>: {ls} <Train Loss>: {ltrain} <f>: {jackknife(fs)} <f^2>: {jackknife(fs**2)} <Of>: {jackknife(obs*fs)} <O-f>:{jackknife(obs-fs)}", flush=True)
+                f"Epoch {epochs}:  <Test Loss>: {ls} <Train Loss>: {ltrain} <f>: {jackknife(fs)} <f^2>: {jackknife(fs**2)} <Of>: {jackknife(obs*fs)} <O-f>:{jackknife(obs-fs)}, time={time.time()-start}", flush=True)
 
-            track_red.append(
-                [epochs, jackknife(obs)[1]/jackknife(obs-fs)[1]])
+            track_red.append([epochs, jackknife(obs)[1]/jackknife(obs-fs)[1]])
             track_ltrain.append([epochs, ltrain])
             track_ltest.append([epochs, ls])
 
             save()
             if reduction_best < track_red[-1][1]:
                 save_best()
+                reduction_best = track_red[-1][1]
 
         for i in range(args.n_train//args.batch_train):
             minibatch = jax.device_put(
