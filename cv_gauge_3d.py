@@ -15,6 +15,21 @@ import optax
 from util import *
 from itertools import product
 
+import os
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.9'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['XLA_FLAGS'] = (
+    '--xla_gpu_triton_gemm_any=True '
+    '--xla_gpu_enable_latency_hiding_scheduler=true '
+)
+os.environ.update({
+    "NCCL_LL128_BUFFSIZE": "-2",
+    "NCCL_LL_BUFFSIZE": "-2",
+    "NCCL_PROTO": "SIMPLE,LL,LL128",
+})
+
+jax.config.update("jax_default_matmul_precision", "highest")
+
 
 def arcsinh(x: any) -> any:
     return jnp.arcsinh(x)
@@ -273,7 +288,8 @@ if __name__ == '__main__':
 
     # Training
     start = time.time()
-    for epochs in range(3):
+    epochs = 0
+    while True:
         key, _ = jax.random.split(key)
         perm = jax.random.permutation(key, args.n_train)
 
@@ -312,3 +328,5 @@ if __name__ == '__main__':
                 conf_train[perm[i*args.batch_train: (i+1)*args.batch_train]], sharding)
             g_params, opt_state = train_batch_shard(
                 minibatch, g_params, opt_state)
+
+        epochs += 1
