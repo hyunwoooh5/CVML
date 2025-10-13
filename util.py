@@ -100,6 +100,9 @@ def l1_regularization(params):
     return l2_sum
 
 # For adamW
+''' 
+    Example: optax.adamw(learning_rate=1e-3, weight_decay=1e-4, mask=decay_mask(params))
+'''
 def decay_mask(params):
     flat = flax.traverse_util.flatten_dict(params)
     mask = {path: (path[-1] == "kernel") for path in flat}

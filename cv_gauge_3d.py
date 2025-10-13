@@ -302,9 +302,9 @@ if __name__ == '__main__':
                 fs.append(f_vmap(minibatch, g_params))
                 ls.append(Loss_vmap(minibatch, g_params))
 
-            for i in range(args.n_train//args.batch_test):
+            for i in range(args.n_train//args.batch_train):
                 minibatch = jax.device_put(
-                    conf_train[args.batch_test*i: args.batch_test*(i+1)], sharding)
+                    conf_train[args.batch_train*i: args.batch_train*(i+1)], sharding)
                 ltrain.append(Loss_vmap(minibatch, g_params))
 
             fs = jnp.ravel(jnp.array(fs))
