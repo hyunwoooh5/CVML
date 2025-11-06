@@ -2,14 +2,9 @@
 
 import numpy as np
 import argparse
-import pickle
-import jax
 import sys
 sys.path.append('../CVML')
 
-from models import gauge
-
-jax.config.update("jax_platform_name", "cpu") # Turn off warning
 
 # Global counters for rejection sampling acceptance
 global_total_proposals = 0
@@ -236,5 +231,5 @@ if __name__ == "__main__":
             avg_plaq = compute_average_plaquette(U)
             print(
                 f"Sweep {sweep+1:3d}: Average Plaquette = {avg_plaq:.6f}, Overall Acceptance Ratio = {global_total_accepts / global_total_proposals:.4f}", flush=True)
-    
+
     np.save(args.cf, configs)

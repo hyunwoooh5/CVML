@@ -99,11 +99,46 @@ def l1_regularization(params):
                  for key, param in flat_params.items() if key[-1] == 'kernel')
     return l2_sum
 
-# For adamW
-''' 
-    Example: optax.adamw(learning_rate=1e-3, weight_decay=1e-4, mask=decay_mask(params))
-'''
+
 def decay_mask(params):
+    # For adamW
+    ''' 
+    Example: optax.adamw(learning_rate=1e-3, weight_decay=1e-4, mask=decay_mask(params))
+    '''
     flat = flax.traverse_util.flatten_dict(params)
     mask = {path: (path[-1] == "kernel") for path in flat}
     return flax.traverse_util.unflatten_dict(mask)
+
+
+def autocorr_time_fft(x, max_lag=None):
+    x = np.asarray(x)
+    n = len(x)
+    x = x - np.mean(x)
+    var = np.var(x, ddof=1)
+    if var == 0:
+        return 1.0  # or np.nan
+
+    # Next power of 2 for efficient FFT
+    n_fft = 2 ** (int(np.ceil(np.log2(2 * n))))
+    # print(n_fft)
+
+    # FFT of zero-padded signal
+    fx = np.fft.fft(x, n=n_fft)
+    acf = np.fft.ifft(fx * np.conjugate(fx)).real[:n]
+
+    # Normalize
+    acf /= var * np.arange(n, 0, -1)
+    acf /= acf[0]
+
+    # Set max lag
+    if max_lag is None:
+        max_lag = n // 2
+    max_lag = min(max_lag, len(acf) - 1)
+
+    # Initial positive sequence
+    t = 1
+    while t < max_lag and acf[t] > 0:
+        t += 1
+
+    tau = 1 + 2 * np.sum(acf[1:t])
+    return tau
